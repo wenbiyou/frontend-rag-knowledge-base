@@ -1,0 +1,30 @@
+# 后端框架
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+python-dotenv==1.0.0
+
+# 向量数据库
+chromadb==0.4.22
+
+# 大模型与 Embedding
+openai==1.10.0
+zhipuai  # 智谱 AI SDK
+
+# 文档处理
+beautifulsoup4==4.12.2
+requests==2.31.0
+pypdf==3.17.4
+markdown==3.5.2
+
+# LangChain 生态
+langchain==0.1.4
+langchain-community==0.0.16
+langchain-openai==0.0.5
+
+# 本地 Embedding 模型（可选，使用 local provider 时需要）
+sentence-transformers==2.2.2
+
+# 工具
+pydantic==2.5.3
+tiktoken==0.5.2

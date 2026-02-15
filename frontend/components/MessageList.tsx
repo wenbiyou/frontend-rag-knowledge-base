@@ -201,7 +201,7 @@ function StreamingContent({ content, isStreaming }: StreamingContentProps) {
 }
 
 /**
- * 代码块组件 - 支持复制功能
+ * 代码块组件 - 支持复制功能（整段 + 单行）
  */
 interface CodeBlockProps {
   language: string;
@@ -209,19 +209,33 @@ interface CodeBlockProps {
 }
 
 function CodeBlock({ language, code }: CodeBlockProps) {
-  const [copied, setCopied] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [copiedLine, setCopiedLine] = useState<number | null>(null);
+  const [hoveredLine, setHoveredLine] = useState<number | null>(null);
 
-  const handleCopy = async () => {
+  // 复制整段代码
+  const handleCopyAll = async () => {
     try {
       await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 2000);
     } catch (err) {
       console.error("复制失败:", err);
     }
   };
 
-  // 将代码按行分割，支持行号显示
+  // 复制单行代码
+  const handleCopyLine = async (lineContent: string, lineIndex: number) => {
+    try {
+      await navigator.clipboard.writeText(lineContent);
+      setCopiedLine(lineIndex);
+      setTimeout(() => setCopiedLine(null), 2000);
+    } catch (err) {
+      console.error("复制失败:", err);
+    }
+  };
+
+  // 将代码按行分割
   const lines = code.split("\n");
 
   return (
@@ -234,29 +248,77 @@ function CodeBlock({ language, code }: CodeBlockProps) {
           <span className="text-gray-500">{lines.length} 行</span>
         </div>
         <button
-          onClick={handleCopy}
+          onClick={handleCopyAll}
           className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-700 transition-all"
-          title="复制代码"
+          title="复制全部代码"
         >
-          {copied ? (
+          {copiedAll ? (
             <>
               <Check className="w-3.5 h-3.5 text-green-400" />
-              <span className="text-green-400">已复制</span>
+              <span className="text-green-400">已复制全部</span>
             </>
           ) : (
             <>
               <Copy className="w-3.5 h-3.5" />
-              <span>复制</span>
+              <span>复制全部</span>
             </>
           )}
         </button>
       </div>
 
-      {/* 代码内容 */}
-      <div className="relative">
-        <pre className="bg-gray-900 text-gray-100 p-3 overflow-x-auto text-sm leading-relaxed">
-          <code>{code}</code>
-        </pre>
+      {/* 代码内容 - 带行号和单行复制 */}
+      <div className="relative overflow-x-auto">
+        <div className="flex text-sm leading-relaxed">
+          {/* 行号栏 */}
+          <div className="flex-shrink-0 bg-gray-800 text-gray-500 text-right select-none">
+            {lines.map((_, index) => (
+              <div
+                key={index}
+                className="px-3 py-0.5 relative group/line"
+                onMouseEnter={() => setHoveredLine(index)}
+                onMouseLeave={() => setHoveredLine(null)}
+              >
+                {/* 行号 */}
+                <span className={hoveredLine === index ? "text-gray-300" : ""}>
+                  {index + 1}
+                </span>
+
+                {/* 单行复制按钮 - 悬停时显示 */}
+                {hoveredLine === index && (
+                  <button
+                    onClick={() => handleCopyLine(lines[index], index)}
+                    className="absolute right-full top-1/2 -translate-y-1/2 mr-1 p-1 rounded bg-gray-700 text-gray-300 hover:text-white opacity-0 group-hover/line:opacity-100 transition-opacity"
+                    title={`复制第 ${index + 1} 行`}
+                  >
+                    {copiedLine === index ? (
+                      <Check className="w-3 h-3 text-green-400" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* 代码内容 */}
+          <div className="flex-1 bg-gray-900 text-gray-100">
+            {lines.map((line, index) => (
+              <div
+                key={index}
+                className={`px-4 py-0.5 whitespace-pre ${
+                  hoveredLine === index ? "bg-gray-800/50" : ""
+                }`}
+                onMouseEnter={() => setHoveredLine(index)}
+                onMouseLeave={() => setHoveredLine(null)}
+                onClick={() => handleCopyLine(line, index)}
+                title="点击复制该行"
+              >
+                <code>{line || " "}</code>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

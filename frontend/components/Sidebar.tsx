@@ -413,9 +413,20 @@ function getSourceIcon(type: string) {
 
 function UploadForm({ onSuccess }: { onSuccess: () => void }) {
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<{
+    current: number;
+    total: number;
+    status: string;
+  } | null>(null);
   const [result, setResult] = useState<{
     success: boolean;
     message: string;
+    details?: {
+      total_files?: number;
+      success_count?: number;
+      error_count?: number;
+      total_chunks?: number;
+    };
   } | null>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -424,10 +435,25 @@ function UploadForm({ onSuccess }: { onSuccess: () => void }) {
 
     setUploading(true);
     setResult(null);
+    setProgress({ current: 0, total: 1, status: "上传中..." });
 
     try {
-      await uploadDocument(file);
-      setResult({ success: true, message: "上传成功" });
+      const response = await uploadDocument(file);
+
+      if (response.total_files) {
+        setResult({
+          success: true,
+          message: response.message,
+          details: {
+            total_files: response.total_files,
+            success_count: response.success_count,
+            error_count: response.error_count,
+            total_chunks: response.total_chunks,
+          },
+        });
+      } else {
+        setResult({ success: true, message: response.message || "上传成功" });
+      }
       onSuccess();
     } catch (error) {
       setResult({
@@ -436,35 +462,54 @@ function UploadForm({ onSuccess }: { onSuccess: () => void }) {
       });
     } finally {
       setUploading(false);
+      setProgress(null);
     }
   };
 
   return (
     <div className="space-y-2">
-      <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-colors">
+      <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors">
         <div className="flex flex-col items-center justify-center pt-5 pb-6">
           <Upload
-            className={`w-6 h-6 text-gray-400 mb-2 ${uploading ? "animate-bounce" : ""}`}
+            className={`w-6 h-6 text-gray-400 dark:text-gray-500 mb-2 ${uploading ? "animate-bounce" : ""}`}
           />
-          <p className="text-xs text-gray-500">点击或拖拽上传</p>
-          <p className="text-xs text-gray-400">支持 Markdown、TXT、PDF</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            点击或拖拽上传
+          </p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            支持 Markdown、TXT、PDF、ZIP
+          </p>
         </div>
         <input
           type="file"
           className="hidden"
-          accept=".md,.markdown,.txt,.pdf"
+          accept=".md,.markdown,.txt,.pdf,.zip"
           onChange={handleFileChange}
           disabled={uploading}
         />
       </label>
 
+      {progress && (
+        <div className="text-xs text-center text-primary-600 dark:text-primary-400">
+          {progress.status}
+        </div>
+      )}
+
       {result && (
         <div
           className={`text-xs text-center ${
-            result.success ? "text-green-600" : "text-red-600"
+            result.success
+              ? "text-green-600 dark:text-green-400"
+              : "text-red-600 dark:text-red-400"
           }`}
         >
-          {result.message}
+          <p>{result.message}</p>
+          {result.details && (
+            <p className="mt-1 text-gray-500 dark:text-gray-400">
+              成功 {result.details.success_count} 个 · 片段{" "}
+              {result.details.total_chunks} 个
+            </p>
+          )}
         </div>
       )}
     </div>

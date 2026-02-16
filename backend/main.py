@@ -274,13 +274,15 @@ def upload_document(
     """
     上传文档到知识库
 
-    支持格式：.md, .markdown, .txt, .pdf
+    支持格式：.md, .markdown, .txt, .pdf, .zip
+    ZIP 文件会自动解压并批量导入
     """
     import shutil
+    import zipfile
+    import tempfile
     from pathlib import Path
 
-    # 检查文件格式
-    allowed_extensions = {".md", ".markdown", ".txt", ".pdf"}
+    allowed_extensions = {".md", ".markdown", ".txt", ".pdf", ".zip"}
     file_ext = Path(file.filename).suffix.lower()
 
     if file_ext not in allowed_extensions:
@@ -289,7 +291,6 @@ def upload_document(
             detail=f"不支持的文件格式: {file_ext}。支持: {', '.join(allowed_extensions)}"
         )
 
-    # 保存上传的文件
     upload_dir = Path("./uploads")
     upload_dir.mkdir(exist_ok=True)
 
@@ -299,32 +300,97 @@ def upload_document(
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # 导入文档
-        importer = DocumentImporter()
-        metadata = {
-            "title": title or file.filename,
-            "description": description or "",
-            "filename": file.filename,
-            "uploaded_at": str(Path(file_path).stat().st_mtime)
-        }
+        if file_ext == ".zip":
+            results = []
+            total_chunks = 0
+            total_chars = 0
+            errors = []
 
-        result = importer.import_file(str(file_path), metadata)
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
 
-        # 清理上传的临时文件
-        file_path.unlink()
+                with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_path)
 
-        if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
+                doc_extensions = {".md", ".markdown", ".txt", ".pdf"}
+                doc_files = []
+                for ext in doc_extensions:
+                    doc_files.extend(temp_path.rglob(f"*{ext}"))
 
-        return {
-            "success": True,
-            "message": f"文档 '{file.filename}' 导入成功",
-            "chunks": result["chunks"],
-            "total_chars": result["total_chars"]
-        }
+                importer = DocumentImporter()
 
+                for doc_file in doc_files:
+                    try:
+                        relative_path = doc_file.relative_to(temp_path)
+                        metadata = {
+                            "title": doc_file.stem,
+                            "filename": str(relative_path),
+                            "source": f"zip:{file.filename}:{relative_path}",
+                            "uploaded_at": str(doc_file.stat().st_mtime)
+                        }
+
+                        result = importer.import_file(str(doc_file), metadata)
+
+                        if "error" in result:
+                            errors.append({
+                                "file": str(relative_path),
+                                "error": result["error"]
+                            })
+                        else:
+                            results.append({
+                                "file": str(relative_path),
+                                "chunks": result["chunks"],
+                                "chars": result["total_chars"]
+                            })
+                            total_chunks += result["chunks"]
+                            total_chars += result["total_chars"]
+
+                    except Exception as e:
+                        errors.append({
+                            "file": str(relative_path),
+                            "error": str(e)
+                        })
+
+            file_path.unlink()
+
+            return {
+                "success": True,
+                "message": f"批量导入完成：{len(results)} 个文件成功，{len(errors)} 个失败",
+                "total_files": len(doc_files),
+                "success_count": len(results),
+                "error_count": len(errors),
+                "total_chunks": total_chunks,
+                "total_chars": total_chars,
+                "results": results,
+                "errors": errors
+            }
+
+        else:
+            importer = DocumentImporter()
+            metadata = {
+                "title": title or file.filename,
+                "description": description or "",
+                "filename": file.filename,
+                "uploaded_at": str(Path(file_path).stat().st_mtime)
+            }
+
+            result = importer.import_file(str(file_path), metadata)
+
+            file_path.unlink()
+
+            if "error" in result:
+                raise HTTPException(status_code=500, detail=result["error"])
+
+            return {
+                "success": True,
+                "message": f"文档 '{file.filename}' 导入成功",
+                "chunks": result["chunks"],
+                "total_chars": result["total_chars"]
+            }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        # 清理临时文件
         if file_path.exists():
             file_path.unlink()
         raise HTTPException(status_code=500, detail=str(e))

@@ -1516,6 +1516,115 @@ def api_v1_sources(http_request: Request):
     return {"sources": sources}
 
 
+# ==================== RAG 优化 API ====================
+
+class RAGOptimizeRequest(BaseModel):
+    """RAG 优化请求"""
+    query: str
+
+
+class RAGOptimizeResponse(BaseModel):
+    """RAG 优化响应"""
+    original_query: str
+    intent: str
+    intent_keywords: List[str]
+    suggested_sources: List[str]
+
+
+@app.post("/api/rag/optimize", response_model=RAGOptimizeResponse)
+def optimize_rag_query(request: RAGOptimizeRequest):
+    """优化查询（意图识别、关键词提取）"""
+    from rag_optimizer import get_rag_optimizer
+
+    optimizer = get_rag_optimizer()
+    result = optimizer.optimize_query(request.query)
+
+    return RAGOptimizeResponse(**result)
+
+
+@app.post("/api/rag/enhanced-search")
+def enhanced_search(
+    request: ChatRequest,
+    use_rerank: bool = Query(True, description="是否使用重排序"),
+    top_k: int = Query(5, ge=1, le=20, description="返回文档数量")
+):
+    """增强搜索（多路召回 + 重排序）"""
+    from rag_optimizer import get_rag_optimizer
+
+    optimizer = get_rag_optimizer()
+
+    query_info = optimizer.optimize_query(request.message)
+    intent = query_info["intent"]
+
+    rag_engine = get_rag_engine()
+    docs, metas = rag_engine._retrieve(request.message, request.source_filter)
+
+    if not docs:
+        return {
+            "intent": intent,
+            "results": [],
+            "message": "未找到相关文档"
+        }
+
+    scores = [0.8] * len(docs)
+
+    if use_rerank:
+        enhanced = optimizer.enhance_retrieval(
+            query=request.message,
+            docs=docs[:top_k * 2],
+            metas=metas[:top_k * 2],
+            scores=scores[:top_k * 2]
+        )
+        enhanced["results"] = enhanced["results"][:top_k]
+        return enhanced
+
+    return {
+        "intent": intent,
+        "results": [
+            {
+                "content": doc[:500] + "..." if len(doc) > 500 else doc,
+                "metadata": meta,
+                "original_score": 0.8
+            }
+            for doc, meta in zip(docs[:top_k], metas[:top_k])
+        ]
+    }
+
+
+@app.get("/api/rag/intent-examples")
+def get_intent_examples():
+    """获取各意图类型的示例查询"""
+    return {
+        "examples": {
+            "code": [
+                "如何实现一个防抖函数？",
+                "Vue3 的 ref 怎么用？",
+                "React 组件怎么封装？"
+            ],
+            "concept": [
+                "什么是虚拟 DOM？",
+                "Vue 的响应式原理是什么？",
+                "Promise 和 async/await 有什么区别？"
+            ],
+            "best_practice": [
+                "React 项目的最佳目录结构是什么？",
+                "前端性能优化有哪些方法？",
+                "如何设计一个组件库？"
+            ],
+            "error_debug": [
+                "为什么我的组件不渲染？",
+                "报错 Cannot read property of undefined 怎么解决？",
+                "跨域问题怎么处理？"
+            ],
+            "comparison": [
+                "Vue 和 React 有什么区别？",
+                "TypeScript 和 JavaScript 哪个好？",
+                "Vuex 和 Pinia 的优缺点？"
+            ]
+        }
+    }
+
+
 # ==================== 启动入口 ====================
 
 def main():

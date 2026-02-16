@@ -1625,6 +1625,131 @@ def get_intent_examples():
     }
 
 
+# ==================== 代码分析 API ====================
+
+class CodeUploadRequest(BaseModel):
+    """代码上传请求"""
+    filename: str
+    content: str
+
+
+class CodeSearchRequest(BaseModel):
+    """代码搜索请求"""
+    query: str
+    limit: int = 10
+
+
+@app.post("/api/code/analyze")
+def analyze_code_file(request: CodeUploadRequest):
+    """分析代码文件"""
+    from code_analyzer import get_code_analyzer
+
+    analyzer = get_code_analyzer()
+    result = analyzer.analyze_file(request.filename, request.content)
+
+    return {
+        "success": True,
+        "file": {
+            "id": result.id,
+            "filename": result.filename,
+            "language": result.language,
+            "line_count": result.line_count,
+            "functions": result.functions,
+            "classes": result.classes,
+            "imports": result.imports,
+            "exports": result.exports
+        }
+    }
+
+
+@app.get("/api/code/files")
+def list_code_files(
+    language: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=100)
+):
+    """列出代码文件"""
+    from code_analyzer import get_code_analyzer
+
+    analyzer = get_code_analyzer()
+    files = analyzer.list_files(language=language, limit=limit)
+
+    return {"files": files}
+
+
+@app.get("/api/code/files/{file_id}")
+def get_code_file(file_id: str):
+    """获取代码文件详情"""
+    from code_analyzer import get_code_analyzer
+
+    analyzer = get_code_analyzer()
+    file = analyzer.get_file(file_id)
+
+    if not file:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    return file
+
+
+@app.delete("/api/code/files/{file_id}")
+def delete_code_file(file_id: str):
+    """删除代码文件"""
+    from code_analyzer import get_code_analyzer
+
+    analyzer = get_code_analyzer()
+    success = analyzer.delete_file(file_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    return {"success": True, "message": "文件已删除"}
+
+
+@app.post("/api/code/search")
+def search_code_snippets(request: CodeSearchRequest):
+    """搜索代码片段"""
+    from code_analyzer import get_code_analyzer
+
+    analyzer = get_code_analyzer()
+    results = analyzer.search_snippets(request.query, request.limit)
+
+    return {"results": results}
+
+
+@app.get("/api/code/stats")
+def get_code_stats():
+    """获取代码统计"""
+    from code_analyzer import get_code_analyzer
+
+    analyzer = get_code_analyzer()
+    return analyzer.get_stats()
+
+
+@app.post("/api/code/batch-analyze")
+def batch_analyze_code(files: List[CodeUploadRequest]):
+    """批量分析代码文件"""
+    from code_analyzer import get_code_analyzer
+
+    analyzer = get_code_analyzer()
+    results = []
+
+    for file in files:
+        try:
+            result = analyzer.analyze_file(file.filename, file.content)
+            results.append({
+                "filename": result.filename,
+                "success": True,
+                "id": result.id
+            })
+        except Exception as e:
+            results.append({
+                "filename": file.filename,
+                "success": False,
+                "error": str(e)
+            })
+
+    return {"results": results}
+
+
 # ==================== 启动入口 ====================
 
 def main():

@@ -11,9 +11,12 @@ FastAPI 主应用
 - GET  /health           : 健康检查
 - POST /api/webhook/github : GitHub Webhook 端点
 - GET  /api/repos        : 仓库管理 API
+- POST /api/auth/register : 用户注册
+- POST /api/auth/login   : 用户登录
+- GET  /api/auth/me      : 获取当前用户
 """
 from typing import List, Optional, Dict
-from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Request, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Request, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -35,23 +38,20 @@ from database import get_vector_store
 from deepseek_client import get_llm_client
 import github_db
 
-# 创建 FastAPI 应用
 app = FastAPI(
     title="前端知识库 API",
     description="基于 RAG 的前端开发知识库系统",
-    version="1.0.0"
+    version="2.0.0"
 )
 
-# 配置 CORS（允许前端跨域访问）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # 前端开发服务器地址
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 内存中的会话存储（生产环境应使用 Redis 等）
 sessions: dict = {}
 
 # ==================== 数据模型 ====================
@@ -90,6 +90,62 @@ class StatsResponse(BaseModel):
     total_documents: int
     sources: List[str]
 
+
+# ==================== 认证相关模型 ====================
+
+class RegisterRequest(BaseModel):
+    """注册请求"""
+    username: str
+    password: str
+    email: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    """登录请求"""
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    """用户响应"""
+    id: int
+    username: str
+    email: Optional[str]
+    role: str
+    created_at: str
+
+
+class LoginResponse(BaseModel):
+    """登录响应"""
+    user: UserResponse
+    token: str
+
+
+class ChangePasswordRequest(BaseModel):
+    """修改密码请求"""
+    old_password: str
+    new_password: str
+
+
+# ==================== 认证依赖 ====================
+
+def get_current_user_optional(request: Request) -> Optional[Dict]:
+    """获取当前用户（可选）"""
+    from auth import get_current_user
+    authorization = request.headers.get("Authorization")
+    return get_current_user(authorization)
+
+
+def get_current_user_required(request: Request) -> Dict:
+    """获取当前用户（必须登录）"""
+    from auth import get_current_user
+    authorization = request.headers.get("Authorization")
+    user = get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="未登录或 Token 已过期")
+    return user
+
+
 # ==================== API 端点 ====================
 
 @app.get("/health")
@@ -98,8 +154,111 @@ def health_check():
     return {
         "status": "healthy",
         "service": "frontend-rag-knowledge-base",
-        "version": "1.0.0"
+        "version": "2.0.0"
     }
+
+
+# ==================== 认证 API ====================
+
+@app.post("/api/auth/register", response_model=UserResponse)
+def register(request: RegisterRequest):
+    """用户注册"""
+    from auth import get_user_manager
+
+    if len(request.username) < 3:
+        raise HTTPException(status_code=400, detail="用户名至少 3 个字符")
+    if len(request.password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少 6 个字符")
+
+    manager = get_user_manager()
+    result = manager.create_user(
+        username=request.username,
+        password=request.password,
+        email=request.email
+    )
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return UserResponse(**result)
+
+
+@app.post("/api/auth/login", response_model=LoginResponse)
+def login(request: LoginRequest):
+    """用户登录"""
+    from auth import get_user_manager, create_token
+
+    manager = get_user_manager()
+    user = manager.authenticate(request.username, request.password)
+
+    if not user:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    token = create_token(user["id"], user["username"], user["role"])
+
+    return LoginResponse(
+        user=UserResponse(**user),
+        token=token
+    )
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+def get_me(user: Dict = Depends(get_current_user_required)):
+    """获取当前用户信息"""
+    return UserResponse(**user)
+
+
+@app.post("/api/auth/change-password")
+def change_password(
+    request: ChangePasswordRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """修改密码"""
+    from auth import get_user_manager
+
+    manager = get_user_manager()
+    result = manager.change_password(
+        user_id=user["id"],
+        old_password=request.old_password,
+        new_password=request.new_password
+    )
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result
+
+
+@app.get("/api/auth/users")
+def list_users(user: Dict = Depends(get_current_user_required)):
+    """获取用户列表（仅管理员）"""
+    from auth import get_user_manager
+
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="无权限")
+
+    manager = get_user_manager()
+    return {"users": manager.list_users()}
+
+
+@app.delete("/api/auth/users/{user_id}")
+def delete_user(
+    user_id: int,
+    user: Dict = Depends(get_current_user_required)
+):
+    """删除用户（仅管理员）"""
+    from auth import get_user_manager
+
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="无权限")
+
+    manager = get_user_manager()
+    success = manager.delete_user(user_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    return {"success": True, "message": "用户已删除"}
 
 @app.get("/api/stats", response_model=StatsResponse)
 def get_stats():
@@ -441,19 +600,24 @@ def sync_documents(request: SyncRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/session/{session_id}")
-def clear_session(session_id: str):
+def clear_session(
+    session_id: str,
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
     """清空指定会话的历史"""
     from chat_history import get_history_manager
 
-    # 从内存中移除
     if session_id in sessions:
         session = sessions[session_id]
         session.clear_history()
         del sessions[session_id]
 
-    # 从数据库中删除
     history_manager = get_history_manager()
-    history_manager.delete_session(session_id)
+    user_id = user["id"] if user else None
+    success = history_manager.delete_session(session_id, user_id=user_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="会话不存在或无权限")
 
     return {"success": True, "message": "会话已清除"}
 
@@ -472,12 +636,16 @@ class SessionRenameRequest(BaseModel):
 
 
 @app.get("/api/sessions", response_model=SessionListResponse)
-def get_sessions(limit: int = 50):
-    """获取所有会话列表（按最近更新时间排序）"""
+def get_sessions(
+    limit: int = 50,
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
+    """获取会话列表（按最近更新时间排序，支持用户隔离）"""
     from chat_history import get_history_manager
 
     history_manager = get_history_manager()
-    sessions_list = history_manager.get_all_sessions(limit=limit)
+    user_id = user["id"] if user else None
+    sessions_list = history_manager.get_all_sessions(limit=limit, user_id=user_id)
 
     return SessionListResponse(
         sessions=sessions_list,
@@ -486,7 +654,10 @@ def get_sessions(limit: int = 50):
 
 
 @app.get("/api/sessions/{session_id}/messages")
-def get_session_messages(session_id: str):
+def get_session_messages(
+    session_id: str,
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
     """获取指定会话的所有消息"""
     from chat_history import get_history_manager
 
@@ -500,26 +671,32 @@ def get_session_messages(session_id: str):
 
 
 @app.put("/api/sessions/{session_id}/rename")
-def rename_session(session_id: str, request: SessionRenameRequest):
+def rename_session(
+    session_id: str,
+    request: SessionRenameRequest,
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
     """重命名会话"""
     from chat_history import get_history_manager
 
     history_manager = get_history_manager()
-    success = history_manager.rename_session(session_id, request.title)
+    user_id = user["id"] if user else None
+    success = history_manager.rename_session(session_id, request.title, user_id=user_id)
 
     return {
         "success": success,
-        "message": "重命名成功" if success else "会话不存在"
+        "message": "重命名成功" if success else "会话不存在或无权限"
     }
 
 
 @app.get("/api/chat-stats")
-def get_chat_stats():
+def get_chat_stats(user: Optional[Dict] = Depends(get_current_user_optional)):
     """获取对话统计信息"""
     from chat_history import get_history_manager
 
     history_manager = get_history_manager()
-    stats = history_manager.get_stats()
+    user_id = user["id"] if user else None
+    stats = history_manager.get_stats(user_id=user_id)
 
     return stats
 

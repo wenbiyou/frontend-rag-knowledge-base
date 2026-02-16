@@ -1,6 +1,6 @@
 """
 对话历史管理模块
-使用 SQLite 持久化存储对话记录
+使用 SQLite 持久化存储对话记录，支持多用户隔离
 """
 import sqlite3
 import json
@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from config import BASE_DIR
 
-# 数据库文件路径
 CHAT_DB_PATH = BASE_DIR / "chat_history.db"
 
 
@@ -24,10 +23,10 @@ class ChatHistoryManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # 创建会话表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_sessions (
                     session_id TEXT PRIMARY KEY,
+                    user_id INTEGER,
                     title TEXT DEFAULT '新对话',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -35,34 +34,37 @@ class ChatHistoryManager:
                 )
             """)
 
-            # 创建消息表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id TEXT,
-                    role TEXT NOT NULL,  -- 'user' 或 'assistant'
+                    role TEXT NOT NULL,
                     content TEXT NOT NULL,
-                    sources TEXT,  -- JSON 格式的来源信息
+                    sources TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
                 )
             """)
 
-            # 创建索引
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_messages_session
                 ON chat_messages(session_id, created_at)
             """)
 
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_user
+                ON chat_sessions(user_id, updated_at)
+            """)
+
             conn.commit()
 
-    def create_session(self, session_id: str, title: str = None) -> None:
+    def create_session(self, session_id: str, title: str = None, user_id: int = None) -> None:
         """创建新会话"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT OR IGNORE INTO chat_sessions (session_id, title) VALUES (?, ?)",
-                (session_id, title or '新对话')
+                "INSERT OR IGNORE INTO chat_sessions (session_id, title, user_id) VALUES (?, ?, ?)",
+                (session_id, title or '新对话', user_id)
             )
             conn.commit()
 
@@ -72,7 +74,6 @@ class ChatHistoryManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # 保存消息
             sources_json = json.dumps(sources, ensure_ascii=False) if sources else None
             cursor.execute(
                 """
@@ -82,7 +83,6 @@ class ChatHistoryManager:
                 (session_id, role, content, sources_json)
             )
 
-            # 更新会话的 updated_at 和 message_count
             cursor.execute(
                 """
                 UPDATE chat_sessions
@@ -93,15 +93,13 @@ class ChatHistoryManager:
                 (session_id,)
             )
 
-            # 如果是第一条用户消息，自动设置会话标题
             if role == 'user':
                 cursor.execute(
                     "SELECT COUNT(*) FROM chat_messages WHERE session_id = ?",
                     (session_id,)
                 )
                 count = cursor.fetchone()[0]
-                if count <= 2:  # 第一条或第二条消息
-                    # 使用用户消息的前 20 字作为标题
+                if count <= 2:
                     title = content[:30] + '...' if len(content) > 30 else content
                     cursor.execute(
                         "UPDATE chat_sessions SET title = ? WHERE session_id = ?",
@@ -139,21 +137,34 @@ class ChatHistoryManager:
 
             return messages
 
-    def get_all_sessions(self, limit: int = 50) -> List[Dict]:
-        """获取所有会话列表（最近更新的在前）"""
+    def get_all_sessions(self, limit: int = 50, user_id: int = None) -> List[Dict]:
+        """获取会话列表（支持用户隔离）"""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            cursor.execute(
-                """
-                SELECT session_id, title, created_at, updated_at, message_count
-                FROM chat_sessions
-                ORDER BY updated_at DESC
-                LIMIT ?
-                """,
-                (limit,)
-            )
+            if user_id is not None:
+                cursor.execute(
+                    """
+                    SELECT session_id, title, created_at, updated_at, message_count
+                    FROM chat_sessions
+                    WHERE user_id = ? OR user_id IS NULL
+                    ORDER BY updated_at DESC
+                    LIMIT ?
+                    """,
+                    (user_id, limit)
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT session_id, title, created_at, updated_at, message_count
+                    FROM chat_sessions
+                    WHERE user_id IS NULL
+                    ORDER BY updated_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,)
+                )
 
             sessions = []
             for row in cursor.fetchall():
@@ -167,18 +178,25 @@ class ChatHistoryManager:
 
             return sessions
 
-    def delete_session(self, session_id: str) -> bool:
-        """删除会话及其所有消息"""
+    def delete_session(self, session_id: str, user_id: int = None) -> bool:
+        """删除会话及其所有消息（支持用户验证）"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            # 先删除消息
+            if user_id is not None:
+                cursor.execute(
+                    "SELECT user_id FROM chat_sessions WHERE session_id = ?",
+                    (session_id,)
+                )
+                row = cursor.fetchone()
+                if row and row[0] is not None and row[0] != user_id:
+                    return False
+
             cursor.execute(
                 "DELETE FROM chat_messages WHERE session_id = ?",
                 (session_id,)
             )
 
-            # 再删除会话
             cursor.execute(
                 "DELETE FROM chat_sessions WHERE session_id = ?",
                 (session_id,)
@@ -187,10 +205,20 @@ class ChatHistoryManager:
             conn.commit()
             return cursor.rowcount > 0
 
-    def rename_session(self, session_id: str, new_title: str) -> bool:
-        """重命名会话"""
+    def rename_session(self, session_id: str, new_title: str, user_id: int = None) -> bool:
+        """重命名会话（支持用户验证）"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+
+            if user_id is not None:
+                cursor.execute(
+                    "SELECT user_id FROM chat_sessions WHERE session_id = ?",
+                    (session_id,)
+                )
+                row = cursor.fetchone()
+                if row and row[0] is not None and row[0] != user_id:
+                    return False
+
             cursor.execute(
                 "UPDATE chat_sessions SET title = ? WHERE session_id = ?",
                 (new_title, session_id)
@@ -198,20 +226,56 @@ class ChatHistoryManager:
             conn.commit()
             return cursor.rowcount > 0
 
-    def get_stats(self) -> Dict:
+    def get_stats(self, user_id: int = None) -> Dict:
         """获取对话统计"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
 
-            cursor.execute("SELECT COUNT(*) FROM chat_sessions")
+            if user_id is not None:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM chat_sessions WHERE user_id = ?",
+                    (user_id,)
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) FROM chat_sessions WHERE user_id IS NULL")
             session_count = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COUNT(*) FROM chat_messages")
+            if user_id is not None:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM chat_messages m
+                    JOIN chat_sessions s ON m.session_id = s.session_id
+                    WHERE s.user_id = ?
+                    """,
+                    (user_id,)
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM chat_messages m
+                    JOIN chat_sessions s ON m.session_id = s.session_id
+                    WHERE s.user_id IS NULL
+                    """
+                )
             message_count = cursor.fetchone()[0]
 
-            cursor.execute(
-                "SELECT COUNT(*) FROM chat_messages WHERE role = 'user'"
-            )
+            if user_id is not None:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM chat_messages m
+                    JOIN chat_sessions s ON m.session_id = s.session_id
+                    WHERE s.user_id = ? AND m.role = 'user'
+                    """,
+                    (user_id,)
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM chat_messages m
+                    JOIN chat_sessions s ON m.session_id = s.session_id
+                    WHERE s.user_id IS NULL AND m.role = 'user'
+                    """
+                )
             user_message_count = cursor.fetchone()[0]
 
             return {
@@ -222,7 +286,6 @@ class ChatHistoryManager:
             }
 
 
-# 单例模式
 _history_manager = None
 
 

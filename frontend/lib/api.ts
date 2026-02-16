@@ -5,6 +5,15 @@
 
 const API_BASE = '/api';
 
+function getAuthHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -45,7 +54,7 @@ export async function sendChatMessage(
 ): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
 
@@ -66,7 +75,7 @@ export async function* sendStreamChatMessage(
 ): AsyncGenerator<{ type: string; data: any }, void, unknown> {
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ ...request, stream: true }),
   });
 
@@ -176,38 +185,39 @@ export async function syncDocuments(source: 'official' | 'github' | 'all' = 'all
  * 清空会话
  */
 export async function clearSession(sessionId: string): Promise<void> {
-  await fetch(`${API_BASE}/session/${sessionId}`, { method: 'DELETE' });
+  await fetch(`${API_BASE}/session/${sessionId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
 }
 
 /**
  * 获取所有历史会话
  */
 export async function getSessions(): Promise<{ sessions: any[]; total: number }> {
-  const response = await fetch(`${API_BASE}/sessions`);
+  const response = await fetch(`${API_BASE}/sessions`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('获取会话列表失败');
   }
   return response.json();
 }
 
-/**
- * 获取指定会话的消息历史
- */
 export async function getSessionMessages(sessionId: string): Promise<{ session_id: string; messages: any[] }> {
-  const response = await fetch(`${API_BASE}/sessions/${sessionId}/messages`);
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/messages`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error('获取会话消息失败');
   }
   return response.json();
 }
 
-/**
- * 重命名会话
- */
 export async function renameSession(sessionId: string, title: string): Promise<any> {
   const response = await fetch(`${API_BASE}/sessions/${sessionId}/rename`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ title }),
   });
   if (!response.ok) {

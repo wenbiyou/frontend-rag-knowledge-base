@@ -9,16 +9,21 @@ FastAPI 主应用
 - POST /api/sync         : 触发文档同步
 - GET  /api/stats        : 获取知识库统计
 - GET  /health           : 健康检查
+- POST /api/webhook/github : GitHub Webhook 端点
+- GET  /api/repos        : 仓库管理 API
 """
 from typing import List, Optional, Dict
-from fastapi import FastAPI, File, UploadFile, HTTPException, Query
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 import json
+import hmac
+import hashlib
+from datetime import datetime
 
-from config import HOST, PORT
+from config import HOST, PORT, GITHUB_WEBHOOK_SECRET, GITHUB_REPOS
 from rag_engine import get_rag_engine, ChatSession
 from sync_service import (
     OfficialDocSyncer,
@@ -28,6 +33,7 @@ from sync_service import (
 )
 from database import get_vector_store
 from deepseek_client import get_llm_client
+import github_db
 
 # 创建 FastAPI 应用
 app = FastAPI(
@@ -491,6 +497,251 @@ def get_suggestions(
     except Exception as e:
         # 出错时返回空建议
         return {"suggestions": [], "query": query, "error": str(e)}
+
+
+# ==================== GitHub Webhook 和仓库管理 API ====================
+
+class RepoAddRequest(BaseModel):
+    """添加仓库请求"""
+    repo_name: str
+    auto_sync: bool = True
+
+
+class RepoUpdateRequest(BaseModel):
+    """更新仓库请求"""
+    enabled: Optional[bool] = None
+    auto_sync: Optional[bool] = None
+
+
+def verify_webhook_signature(payload: bytes, signature: str) -> bool:
+    """验证 GitHub Webhook 签名"""
+    if not GITHUB_WEBHOOK_SECRET:
+        return True
+
+    expected_signature = hmac.new(
+        GITHUB_WEBHOOK_SECRET.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(f"sha256={expected_signature}", signature)
+
+
+def sync_repo_background(repo_name: str, triggered_by: str = "webhook"):
+    """后台同步仓库"""
+    try:
+        syncer = GitHubSyncer(repo=repo_name)
+        result = syncer.sync_repo_docs()
+
+        if "error" in result:
+            github_db.update_repo(
+                repo_name,
+                last_sync_status="failed"
+            )
+        else:
+            github_db.update_repo(
+                repo_name,
+                last_sync_status="success",
+                last_sync_at=datetime.now().isoformat()
+            )
+
+    except Exception as e:
+        print(f"后台同步失败: {repo_name} - {e}")
+        github_db.update_repo(
+            repo_name,
+            last_sync_status="failed"
+        )
+
+
+@app.post("/api/webhook/github")
+async def github_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    GitHub Webhook 端点
+    
+    支持 Push 和 Pull Request 事件
+    """
+    payload = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+
+    if not verify_webhook_signature(payload, signature):
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    event_type = request.headers.get("X-GitHub-Event", "")
+    payload_json = json.loads(payload)
+
+    repo_full_name = payload_json.get("repository", {}).get("full_name", "")
+
+    if not repo_full_name:
+        return {"status": "ignored", "reason": "No repository info"}
+
+    event = github_db.add_webhook_event(
+        repo_name=repo_full_name,
+        event_type=event_type,
+        action=payload_json.get("action", ""),
+        payload=payload_json
+    )
+
+    if event_type == "push":
+        repo = github_db.get_repo(repo_full_name)
+        if repo and repo.get("auto_sync"):
+            background_tasks.add_task(
+                sync_repo_background,
+                repo_full_name,
+                "push"
+            )
+            github_db.mark_webhook_processed(event["id"])
+            return {"status": "accepted", "action": "sync_triggered"}
+
+    elif event_type == "pull_request":
+        action = payload_json.get("action", "")
+        pr = payload_json.get("pull_request", {})
+        merged = pr.get("merged", False)
+
+        if action == "closed" and merged:
+            repo = github_db.get_repo(repo_full_name)
+            if repo and repo.get("auto_sync"):
+                background_tasks.add_task(
+                    sync_repo_background,
+                    repo_full_name,
+                    "pr_merge"
+                )
+                github_db.mark_webhook_processed(event["id"])
+                return {"status": "accepted", "action": "sync_triggered"}
+
+    return {"status": "accepted", "action": "no_action"}
+
+
+@app.get("/api/repos")
+def get_repos():
+    """获取所有配置的仓库列表"""
+    repos = github_db.get_all_repos()
+
+    for repo in repos:
+        if repo["repo_name"] not in GITHUB_REPOS:
+            repo["from_env"] = False
+        else:
+            repo["from_env"] = True
+
+    return {
+        "repos": repos,
+        "env_repos": GITHUB_REPOS,
+        "total": len(repos)
+    }
+
+
+@app.post("/api/repos")
+def add_repo(request: RepoAddRequest):
+    """添加新仓库"""
+    result = github_db.add_repo(
+        request.repo_name,
+        auto_sync=request.auto_sync
+    )
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return {
+        "success": True,
+        "message": f"仓库 {request.repo_name} 添加成功",
+        "repo": result
+    }
+
+
+@app.get("/api/repos/{repo_name}")
+def get_repo_detail(repo_name: str):
+    """获取仓库详情"""
+    repo = github_db.get_repo(repo_name)
+
+    if not repo:
+        raise HTTPException(status_code=404, detail="仓库不存在")
+
+    history = github_db.get_sync_history(repo_name, limit=10)
+
+    return {
+        "repo": repo,
+        "sync_history": history
+    }
+
+
+@app.put("/api/repos/{repo_name}")
+def update_repo_config(repo_name: str, request: RepoUpdateRequest):
+    """更新仓库配置"""
+    updates = {}
+    if request.enabled is not None:
+        updates["enabled"] = request.enabled
+    if request.auto_sync is not None:
+        updates["auto_sync"] = request.auto_sync
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="没有要更新的内容")
+
+    success = github_db.update_repo(repo_name, **updates)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="仓库不存在")
+
+    return {
+        "success": True,
+        "message": "更新成功"
+    }
+
+
+@app.delete("/api/repos/{repo_name}")
+def delete_repo_config(repo_name: str):
+    """删除仓库配置"""
+    if repo_name in GITHUB_REPOS:
+        raise HTTPException(
+            status_code=400,
+            detail="无法删除环境变量配置的仓库"
+        )
+
+    success = github_db.delete_repo(repo_name)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="仓库不存在")
+
+    return {
+        "success": True,
+        "message": f"仓库 {repo_name} 已删除"
+    }
+
+
+@app.post("/api/repos/{repo_name}/sync")
+def trigger_repo_sync(repo_name: str, background_tasks: BackgroundTasks):
+    """手动触发仓库同步"""
+    repo = github_db.get_repo(repo_name)
+
+    if not repo:
+        raise HTTPException(status_code=404, detail="仓库不存在")
+
+    if not repo.get("enabled"):
+        raise HTTPException(status_code=400, detail="仓库已禁用")
+
+    background_tasks.add_task(
+        sync_repo_background,
+        repo_name,
+        "manual"
+    )
+
+    return {
+        "success": True,
+        "message": f"仓库 {repo_name} 同步已触发"
+    }
+
+
+@app.get("/api/repos/{repo_name}/history")
+def get_repo_sync_history(repo_name: str, limit: int = 50):
+    """获取仓库同步历史"""
+    history = github_db.get_sync_history(repo_name, limit=limit)
+
+    return {
+        "repo_name": repo_name,
+        "history": history,
+        "total": len(history)
+    }
 
 
 # ==================== 启动入口 ====================

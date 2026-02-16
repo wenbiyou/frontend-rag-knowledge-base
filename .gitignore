@@ -43,6 +43,7 @@ chroma_db/
 # IDE
 .idea/
 .vscode/
+.trae/
 *.swp
 *.swo
 *~

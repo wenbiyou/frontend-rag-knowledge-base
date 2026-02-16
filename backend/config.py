@@ -28,8 +28,18 @@ DOCUMENTS_PATH = BASE_DIR / "documents"
 DOCUMENTS_PATH.mkdir(exist_ok=True)
 
 # GitHub 配置
-GITHUB_REPO = os.getenv("GITHUB_REPO", "")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+
+# 支持多个仓库配置（逗号分隔）
+# 格式：owner/repo1,owner/repo2
+GITHUB_REPOS_STR = os.getenv("GITHUB_REPOS", "")
+GITHUB_REPOS = [repo.strip() for repo in GITHUB_REPOS_STR.split(",") if repo.strip()]
+
+# 向后兼容：如果配置了 GITHUB_REPO，添加到列表中
+GITHUB_REPO = os.getenv("GITHUB_REPO", "")
+if GITHUB_REPO and GITHUB_REPO not in GITHUB_REPOS:
+    GITHUB_REPOS.append(GITHUB_REPO)
 
 # 官方文档源配置
 # 定义支持的官方文档源及其配置

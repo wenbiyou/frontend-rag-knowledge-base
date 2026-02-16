@@ -28,6 +28,7 @@ export const MessageList = memo(function MessageList({
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastMessageRef = useRef<HTMLDivElement>(null);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const [previewSource, setPreviewSource] = useState<Source | null>(null);
 
   // 自动滚动到底部 - 仅当用户没有手动滚动时
   useEffect(() => {
@@ -41,6 +42,7 @@ export const MessageList = memo(function MessageList({
 
   // 监听用户滚动
   const handleScroll = useCallback(() => {
+    console.log("scrolling");
     if (scrollRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
       // 当用户滚动离底部超过 100px 时，标记为用户正在滚动
@@ -49,20 +51,30 @@ export const MessageList = memo(function MessageList({
   }, []);
 
   // 为消息生成唯一的key
-  const getMessageKey = (message: ChatMessage, index: number): string => {
+  const getMessageKey = (message: ChatMessage, index: number) => {
     // 如果消息有id，使用id，否则使用索引和内容的组合
     if ("id" in message) {
-      return message.id as string;
+      return message.id;
     }
     // 使用时间戳和内容的哈希作为唯一标识
     const contentHash = message.content.substring(0, 20) + index;
     return `${message.role}_${contentHash}`;
   };
 
+  // 处理文档预览
+  const handlePreview = (source: Source) => {
+    setPreviewSource(source);
+  };
+
+  // 关闭文档预览
+  const handleClosePreview = () => {
+    setPreviewSource(null);
+  };
+
   return (
     <div
       ref={scrollRef}
-      className="flex-1 overflow-y-auto p-4 space-y-6"
+      className="flex-1 min-h-0 h-full overflow-y-auto p-4 space-y-6"
       onScroll={handleScroll}
     >
       {messages.length === 0 && <WelcomeMessage />}
@@ -72,9 +84,14 @@ export const MessageList = memo(function MessageList({
           key={getMessageKey(message, index)}
           ref={index === messages.length - 1 ? lastMessageRef : null}
         >
-          <MessageItem message={message} />
+          <MessageItem message={message} onPreview={handlePreview} />
         </div>
       ))}
+
+      {/* 文档预览 */}
+      {previewSource && (
+        <DocumentPreview source={previewSource} onClose={handleClosePreview} />
+      )}
     </div>
   );
 });
@@ -126,10 +143,14 @@ const WelcomeMessage = memo(function WelcomeMessage() {
 
 interface MessageItemProps {
   message: ChatMessage;
+  onPreview: (source: Source) => void;
 }
 
 // 使用 memo 减少消息项的重渲染
-const MessageItem = memo(function MessageItem({ message }: MessageItemProps) {
+const MessageItem = memo(function MessageItem({
+  message,
+  onPreview,
+}: MessageItemProps) {
   const isUser = message.role === "user";
 
   return (
@@ -183,7 +204,11 @@ const MessageItem = memo(function MessageItem({ message }: MessageItemProps) {
             </div>
             <div className="flex flex-wrap gap-2">
               {message.sources.map((source, i) => (
-                <SourceTag key={`${source.title}_${i}`} source={source} />
+                <SourceTag
+                  key={`${source.title}_${i}`}
+                  source={source}
+                  onPreview={onPreview}
+                />
               ))}
             </div>
           </div>
@@ -491,7 +516,123 @@ function TypingCursor() {
   );
 }
 
-const SourceTag = memo(function SourceTag({ source }: { source: Source }) {
+/**
+ * 文档预览组件
+ * 点击来源链接时显示文档内容，无需跳转外部网站
+ */
+interface DocumentPreviewProps {
+  source: Source;
+  onClose: () => void;
+}
+
+const DocumentPreview = memo(function DocumentPreview({
+  source,
+  onClose,
+}: DocumentPreviewProps) {
+  const [loading, setLoading] = useState(true);
+  const [content, setContent] = useState<string>("");
+
+  useEffect(() => {
+    // 模拟加载文档内容
+    // 实际项目中，这里应该根据 source.url 获取文档内容
+    const loadContent = async () => {
+      setLoading(true);
+      try {
+        // 模拟网络请求延迟
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        // 模拟文档内容
+        setContent(
+          `# ${source.title}\n\n这是文档 ${source.title} 的预览内容。\n\n来源: ${source.url || "未知"}\n\n文档类型: ${source.type}`,
+        );
+      } catch (error) {
+        console.error("加载文档失败:", error);
+        setContent("无法加载文档内容，请点击链接在新窗口中查看。");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadContent();
+  }, [source]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col">
+        {/* 预览头部 */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">
+            {source.title}
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title="关闭预览"
+          >
+            <svg
+              className="w-5 h-5 text-gray-500 dark:text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+
+        {/* 预览内容 */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-500"></div>
+            </div>
+          ) : (
+            <div className="prose dark:prose-invert max-w-none">
+              <pre className="whitespace-pre-wrap text-sm">{content}</pre>
+            </div>
+          )}
+        </div>
+
+        {/* 预览底部 */}
+        <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+            <span>类型: {source.type}</span>
+            {source.url && (
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1"
+              >
+                在新窗口中打开 <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+interface SourceTagProps {
+  source: Source;
+  onPreview: (source: Source) => void;
+}
+
+const SourceTag = memo(function SourceTag({
+  source,
+  onPreview,
+}: SourceTagProps) {
   const icons = {
     official: Globe,
     github: Github,
@@ -500,16 +641,20 @@ const SourceTag = memo(function SourceTag({ source }: { source: Source }) {
 
   const Icon = icons[source.type as keyof typeof icons] || FileText;
 
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    onPreview(source);
+  };
+
   return (
-    <a
-      href={source.url || "#"}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-xs text-gray-600 dark:text-gray-400 transition-colors"
+    <button
+      onClick={handleClick}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-xs text-gray-600 dark:text-gray-400 transition-colors cursor-pointer"
+      title="点击预览文档"
     >
       <Icon className="w-3 h-3" />
       <span className="truncate max-w-[150px]">{source.title}</span>
       {source.url && <ExternalLink className="w-3 h-3" />}
-    </a>
+    </button>
   );
 });

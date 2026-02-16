@@ -2419,6 +2419,229 @@ def get_growth_summary(user: Dict = Depends(get_current_user_required)):
     return summary
 
 
+# ==================== 社区贡献 API ====================
+
+class SharePromptRequest(BaseModel):
+    """分享提示词请求"""
+    title: str
+    content: str
+    description: Optional[str] = None
+    category: str = "general"
+    tags: Optional[str] = None
+
+
+class ShareConfigRequest(BaseModel):
+    """分享配置请求"""
+    name: str
+    config_json: str
+    description: Optional[str] = None
+    category: str = "general"
+
+
+class SharePracticeRequest(BaseModel):
+    """分享最佳实践请求"""
+    title: str
+    content: str
+    description: Optional[str] = None
+    category: str = "general"
+    tags: Optional[str] = None
+    difficulty: int = 1
+
+
+class LikeRequest(BaseModel):
+    """点赞请求"""
+    item_type: str
+    item_id: int
+
+
+@app.post("/api/community/prompts")
+def share_prompt(
+    request: SharePromptRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """分享提示词"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    result = manager.share_prompt(
+        user_id=user["id"],
+        title=request.title,
+        content=request.content,
+        description=request.description,
+        category=request.category,
+        tags=request.tags
+    )
+
+    return result
+
+
+@app.get("/api/community/prompts")
+def get_prompts(
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    sort_by: str = Query("created_at", regex="^(created_at|likes|views)$"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0)
+):
+    """获取提示词列表"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    prompts = manager.get_prompts(
+        category=category,
+        search=search,
+        sort_by=sort_by,
+        limit=limit,
+        offset=offset
+    )
+
+    return {"prompts": prompts}
+
+
+@app.get("/api/community/prompts/{prompt_id}")
+def get_prompt_detail(prompt_id: int):
+    """获取提示词详情"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    prompt = manager.get_prompt(prompt_id)
+
+    if not prompt:
+        raise HTTPException(status_code=404, detail="提示词不存在")
+
+    return prompt
+
+
+@app.post("/api/community/configs")
+def share_knowledge_config(
+    request: ShareConfigRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """分享知识库配置"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    result = manager.share_config(
+        user_id=user["id"],
+        name=request.name,
+        config_json=request.config_json,
+        description=request.description,
+        category=request.category
+    )
+
+    return result
+
+
+@app.get("/api/community/configs")
+def get_knowledge_configs(
+    category: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100)
+):
+    """获取知识库配置列表"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    configs = manager.get_configs(category=category, limit=limit)
+
+    return {"configs": configs}
+
+
+@app.get("/api/community/configs/{config_id}")
+def get_config_detail(config_id: int):
+    """获取知识库配置详情"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    config = manager.get_config(config_id)
+
+    if not config:
+        raise HTTPException(status_code=404, detail="配置不存在")
+
+    return config
+
+
+@app.post("/api/community/practices")
+def share_best_practice(
+    request: SharePracticeRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """分享最佳实践"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    result = manager.share_practice(
+        user_id=user["id"],
+        title=request.title,
+        content=request.content,
+        description=request.description,
+        category=request.category,
+        tags=request.tags,
+        difficulty=request.difficulty
+    )
+
+    return result
+
+
+@app.get("/api/community/practices")
+def get_best_practices(
+    category: Optional[str] = None,
+    difficulty: Optional[int] = None,
+    limit: int = Query(20, ge=1, le=100)
+):
+    """获取最佳实践列表"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    practices = manager.get_practices(
+        category=category,
+        difficulty=difficulty,
+        limit=limit
+    )
+
+    return {"practices": practices}
+
+
+@app.get("/api/community/practices/{practice_id}")
+def get_practice_detail(practice_id: int):
+    """获取最佳实践详情"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    practice = manager.get_practice(practice_id)
+
+    if not practice:
+        raise HTTPException(status_code=404, detail="最佳实践不存在")
+
+    return practice
+
+
+@app.post("/api/community/like")
+def like_community_item(
+    request: LikeRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """点赞/取消点赞"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    result = manager.like_item(
+        user_id=user["id"],
+        item_type=request.item_type,
+        item_id=request.item_id
+    )
+
+    return result
+
+
+@app.get("/api/community/categories")
+def get_community_categories():
+    """获取社区内容类别"""
+    from community import get_community_manager
+
+    manager = get_community_manager()
+    return manager.get_categories()
+
+
 # ==================== 启动入口 ====================
 
 def main():

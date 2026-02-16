@@ -164,20 +164,20 @@ export function ChatInput({ onSend, isLoading, placeholder }: ChatInputProps) {
   }, []);
 
   return (
-    <div className="border-t border-gray-200 bg-white p-3 sm:p-4 safe-area-bottom">
+    <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 sm:p-4 safe-area-bottom">
       <div className="max-w-4xl mx-auto">
         <div className="relative">
           {/* 搜索建议下拉框 - 移动端全屏显示 */}
           {showSuggestions && suggestions.length > 0 && (
             <div
               ref={suggestionsRef}
-              className={`absolute bottom-full mb-2 bg-white border border-gray-200 shadow-lg overflow-hidden z-50 ${
+              className={`absolute bottom-full mb-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-lg overflow-hidden z-50 ${
                 isMobile
                   ? 'fixed inset-x-0 bottom-[80px] mx-2 rounded-xl max-h-[40vh] overflow-y-auto'
                   : 'left-0 right-0 rounded-xl'
               }`}
             >
-              <div className="px-3 py-2 text-xs text-gray-400 border-b border-gray-100 flex items-center justify-between">
+              <div className="px-3 py-2 text-xs text-gray-400 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
                 <div className="flex items-center gap-1">
                   <Search className="w-3 h-3" />
                   <span>搜索建议</span>
@@ -185,7 +185,7 @@ export function ChatInput({ onSend, isLoading, placeholder }: ChatInputProps) {
                 {isMobile && (
                   <button
                     onClick={() => setShowSuggestions(false)}
-                    className="text-gray-500 hover:text-gray-700"
+                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   >
                     关闭
                   </button>
@@ -195,10 +195,10 @@ export function ChatInput({ onSend, isLoading, placeholder }: ChatInputProps) {
                 <button
                   key={index}
                   onClick={() => handleSelectSuggestion(suggestion)}
-                  className={`w-full px-4 py-3 sm:py-2.5 text-left text-sm flex items-center gap-2 transition-colors active:bg-gray-100 ${
+                  className={`w-full px-4 py-3 sm:py-2.5 text-left text-sm flex items-center gap-2 transition-colors active:bg-gray-100 dark:active:bg-gray-700 ${
                     index === selectedIndex
-                      ? 'bg-primary-50 text-primary-700'
-                      : 'text-gray-700 hover:bg-gray-50'
+                      ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
                   }`}
                 >
                   {suggestion.type === 'document' ? (
@@ -212,7 +212,7 @@ export function ChatInput({ onSend, isLoading, placeholder }: ChatInputProps) {
             </div>
           )}
 
-          <div className="relative flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:border-primary-300 focus-within:ring-2 focus-within:ring-primary-100 transition-all">
+          <div className="relative flex items-end gap-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-2 focus-within:border-primary-300 dark:focus-within:border-primary-600 focus-within:ring-2 focus-within:ring-primary-100 dark:focus-within:ring-primary-900/30 transition-all">
             <textarea
               ref={textareaRef}
               value={input}
@@ -222,7 +222,7 @@ export function ChatInput({ onSend, isLoading, placeholder }: ChatInputProps) {
                 if (suggestions.length > 0) setShowSuggestions(true);
               }}
               placeholder={isMobile ? '输入问题...' : (placeholder || '输入你的问题，按 Enter 发送，Shift+Enter 换行...')}
-              className="flex-1 max-h-[120px] sm:max-h-[200px] bg-transparent border-0 resize-none px-2 sm:px-3 py-2 sm:py-2.5 text-gray-700 placeholder-gray-400 focus:outline-none text-base sm:text-sm"
+              className="flex-1 max-h-[120px] sm:max-h-[200px] bg-transparent border-0 resize-none px-2 sm:px-3 py-2 sm:py-2.5 text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none text-base sm:text-sm"
               rows={1}
               disabled={isLoading}
               inputMode="text"
@@ -238,7 +238,7 @@ export function ChatInput({ onSend, isLoading, placeholder }: ChatInputProps) {
               className={`flex-shrink-0 p-2 sm:p-2.5 rounded-xl transition-all active:scale-95 ${
                 input.trim() && !isLoading
                   ? 'bg-primary-600 text-white hover:bg-primary-700'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
               }`}
             >
               {isLoading ? (
@@ -250,7 +250,7 @@ export function ChatInput({ onSend, isLoading, placeholder }: ChatInputProps) {
           </div>
         </div>
 
-        <p className="text-xs text-gray-400 mt-2 text-center hidden sm:block">
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center hidden sm:block">
           AI 生成内容仅供参考，请核实重要信息
           {showSuggestions && suggestions.length > 0 && (
             <span className="ml-2 text-gray-300">

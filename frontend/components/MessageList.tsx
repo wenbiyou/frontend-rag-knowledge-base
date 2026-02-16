@@ -3,7 +3,7 @@
  * 显示用户和 AI 的对话消息，支持流式输出的打字机效果
  */
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useMemo, useCallback, memo } from "react";
 import { ChatMessage, Source } from "@/lib/api";
 import {
   User,
@@ -21,27 +21,55 @@ interface MessageListProps {
   messages: ChatMessage[];
 }
 
-export function MessageList({ messages }: MessageListProps) {
+// 使用 memo 减少不必要的重渲染
+export const MessageList = memo(function MessageList({
+  messages,
+}: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastMessageRef = useRef<HTMLDivElement>(null);
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
 
-  // 自动滚动到底部
+  // 自动滚动到底部 - 仅当用户没有手动滚动时
   useEffect(() => {
-    if (lastMessageRef.current) {
+    if (lastMessageRef.current && !isUserScrolling) {
       lastMessageRef.current.scrollIntoView({
         behavior: "smooth",
         block: "end",
       });
     }
-  }, [messages]);
+  }, [messages, isUserScrolling]);
+
+  // 监听用户滚动
+  const handleScroll = useCallback(() => {
+    if (scrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      // 当用户滚动离底部超过 100px 时，标记为用户正在滚动
+      setIsUserScrolling(scrollHeight - scrollTop - clientHeight > 100);
+    }
+  }, []);
+
+  // 为消息生成唯一的key
+  const getMessageKey = (message: ChatMessage, index: number): string => {
+    // 如果消息有id，使用id，否则使用索引和内容的组合
+    if ("id" in message) {
+      return message.id as string;
+    }
+    // 使用时间戳和内容的哈希作为唯一标识
+    const contentHash = message.content.substring(0, 20) + index;
+    return `${message.role}_${contentHash}`;
+  };
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6">
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto p-4 space-y-6"
+      onScroll={handleScroll}
+    >
       {messages.length === 0 && <WelcomeMessage />}
 
       {messages.map((message, index) => (
         <div
-          key={index}
+          key={getMessageKey(message, index)}
           ref={index === messages.length - 1 ? lastMessageRef : null}
         >
           <MessageItem message={message} />
@@ -49,38 +77,44 @@ export function MessageList({ messages }: MessageListProps) {
       ))}
     </div>
   );
-}
+});
 
-function WelcomeMessage() {
-  const examples = [
-    "Vue3 的 ref 和 reactive 有什么区别？",
-    "我们团队的 CSS 命名规范是什么？",
-    "React useEffect 的依赖数组怎么写？",
-    "TypeScript 的泛型怎么用？",
-  ];
+// 欢迎消息组件
+const WelcomeMessage = memo(function WelcomeMessage() {
+  const examples = useMemo(
+    () => [
+      "Vue3 的 ref 和 reactive 有什么区别？",
+      "我们团队的 CSS 命名规范是什么？",
+      "React useEffect 的依赖数组怎么写？",
+      "TypeScript 的泛型怎么用？",
+    ],
+    [],
+  );
+
+  const handleExampleClick = useCallback((example: string) => {
+    const event = new CustomEvent("setInput", { detail: example });
+    window.dispatchEvent(event);
+  }, []);
 
   return (
     <div className="flex flex-col items-center justify-center h-full py-12 text-center">
-      <div className="w-16 h-16 bg-primary-100 rounded-2xl flex items-center justify-center mb-6">
-        <Bot className="w-8 h-8 text-primary-600" />
+      <div className="w-16 h-16 bg-primary-100 dark:bg-primary-900/30 rounded-2xl flex items-center justify-center mb-6">
+        <Bot className="w-8 h-8 text-primary-600 dark:text-primary-400" />
       </div>
-      <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+      <h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
         前端知识库助手
       </h2>
-      <p className="text-gray-500 mb-8 max-w-md">
+      <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-md">
         我可以帮你查找前端技术知识、公司内部规范和最佳实践。 支持
         React、Vue、TypeScript 等官方文档，以及你们的 GitHub 仓库。
       </p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full px-4">
         {examples.map((example, i) => (
           <button
             key={i}
-            className="p-3 text-left text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:border-primary-300 hover:bg-primary-50 transition-colors"
-            onClick={() => {
-              const event = new CustomEvent("setInput", { detail: example });
-              window.dispatchEvent(event);
-            }}
+            className="p-3 text-left text-sm text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-primary-300 dark:hover:border-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+            onClick={() => handleExampleClick(example)}
           >
             {example}
           </button>
@@ -88,17 +122,20 @@ function WelcomeMessage() {
       </div>
     </div>
   );
-}
+});
 
 interface MessageItemProps {
   message: ChatMessage;
 }
 
-function MessageItem({ message }: MessageItemProps) {
+// 使用 memo 减少消息项的重渲染
+const MessageItem = memo(function MessageItem({ message }: MessageItemProps) {
   const isUser = message.role === "user";
 
   return (
-    <div className={`flex gap-2 sm:gap-4 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+    <div
+      className={`flex gap-2 sm:gap-4 ${isUser ? "flex-row-reverse" : "flex-row"}`}
+    >
       {/* 头像 */}
       <div
         className={`flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
@@ -115,18 +152,20 @@ function MessageItem({ message }: MessageItemProps) {
       </div>
 
       {/* 消息内容 */}
-      <div className={`max-w-[85%] sm:max-w-[80%] ${isUser ? "items-end" : "items-start"}`}>
+      <div
+        className={`max-w-[85%] sm:max-w-[80%] ${isUser ? "items-end" : "items-start"}`}
+      >
         <div
           className={`px-3 py-2 sm:px-4 sm:py-3 rounded-2xl ${
             isUser
               ? "bg-primary-600 text-white rounded-tr-sm"
-              : "bg-white border border-gray-200 rounded-tl-sm"
+              : "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-tl-sm"
           }`}
         >
           {isUser ? (
             <p className="text-white text-sm sm:text-base">{message.content}</p>
           ) : (
-            <div className="markdown text-gray-800 text-sm sm:text-base">
+            <div className="markdown text-gray-800 dark:text-gray-200 text-sm sm:text-base">
               <StreamingContent
                 content={message.content}
                 isStreaming={message.isStreaming}
@@ -138,13 +177,13 @@ function MessageItem({ message }: MessageItemProps) {
         {/* 来源引用 */}
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="mt-3 space-y-2">
-            <div className="flex items-center gap-1 text-xs text-gray-500">
+            <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
               <BookOpen className="w-3 h-3" />
               <span>参考来源</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {message.sources.map((source, i) => (
-                <SourceTag key={i} source={source} />
+                <SourceTag key={`${source.title}_${i}`} source={source} />
               ))}
             </div>
           </div>
@@ -152,7 +191,7 @@ function MessageItem({ message }: MessageItemProps) {
       </div>
     </div>
   );
-}
+});
 
 /**
  * 流式内容组件 - 带打字机效果
@@ -162,16 +201,26 @@ interface StreamingContentProps {
   isStreaming?: boolean;
 }
 
-function StreamingContent({ content, isStreaming }: StreamingContentProps) {
-  // 将内容按代码块分割
-  const parts = content.split(/(```[\s\S]*?```)/);
-  // 找到最后一个非代码块的文本部分
-  let lastTextPartIndex = -1;
-  parts.forEach((part, index) => {
-    if (!part.startsWith("```")) {
-      lastTextPartIndex = index;
-    }
-  });
+// 使用 memo 减少重渲染
+const StreamingContent = memo(function StreamingContent({
+  content,
+  isStreaming = false,
+}: StreamingContentProps) {
+  // 将内容按代码块分割 - 使用 useMemo 缓存结果
+  const parts = useMemo(() => {
+    return content.split(/(```[\s\S]*?```)/);
+  }, [content]);
+
+  // 找到最后一个非代码块的文本部分 - 使用 useMemo 缓存结果
+  const lastTextPartIndex = useMemo(() => {
+    let index = -1;
+    parts.forEach((part, i) => {
+      if (!part.startsWith("```")) {
+        index = i;
+      }
+    });
+    return index;
+  }, [parts]);
 
   return (
     <>
@@ -183,7 +232,7 @@ function StreamingContent({ content, isStreaming }: StreamingContentProps) {
             const [, language, code] = match;
             return (
               <CodeBlock
-                key={index}
+                key={`code_${index}_${part.length}`}
                 language={language || "text"}
                 code={code.trim()}
               />
@@ -194,11 +243,17 @@ function StreamingContent({ content, isStreaming }: StreamingContentProps) {
         // 普通文本处理 - 带打字机效果
         const showCursor = isStreaming && index === lastTextPartIndex;
 
-        return <TextPart key={index} content={part} showCursor={showCursor} />;
+        return (
+          <TextPart
+            key={`text_${index}`}
+            content={part}
+            showCursor={showCursor}
+          />
+        );
       })}
     </>
   );
-}
+});
 
 /**
  * 代码块组件 - 支持复制功能（整段 + 单行）
@@ -208,13 +263,19 @@ interface CodeBlockProps {
   code: string;
 }
 
-function CodeBlock({ language, code }: CodeBlockProps) {
+// 使用 memo 减少重渲染
+const CodeBlock = memo(function CodeBlock({ language, code }: CodeBlockProps) {
   const [copiedAll, setCopiedAll] = useState(false);
   const [copiedLine, setCopiedLine] = useState<number | null>(null);
   const [hoveredLine, setHoveredLine] = useState<number | null>(null);
 
+  // 将代码按行分割 - 使用 useMemo 缓存结果
+  const lines = useMemo(() => {
+    return code.split("\n");
+  }, [code]);
+
   // 复制整段代码
-  const handleCopyAll = async () => {
+  const handleCopyAll = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopiedAll(true);
@@ -222,21 +283,21 @@ function CodeBlock({ language, code }: CodeBlockProps) {
     } catch (err) {
       console.error("复制失败:", err);
     }
-  };
+  }, [code]);
 
   // 复制单行代码
-  const handleCopyLine = async (lineContent: string, lineIndex: number) => {
-    try {
-      await navigator.clipboard.writeText(lineContent);
-      setCopiedLine(lineIndex);
-      setTimeout(() => setCopiedLine(null), 2000);
-    } catch (err) {
-      console.error("复制失败:", err);
-    }
-  };
-
-  // 将代码按行分割
-  const lines = code.split("\n");
+  const handleCopyLine = useCallback(
+    async (lineContent: string, lineIndex: number) => {
+      try {
+        await navigator.clipboard.writeText(lineContent);
+        setCopiedLine(lineIndex);
+        setTimeout(() => setCopiedLine(null), 2000);
+      } catch (err) {
+        console.error("复制失败:", err);
+      }
+    },
+    [],
+  );
 
   return (
     <div className="my-3 relative group rounded-lg overflow-hidden bg-gray-900">
@@ -322,22 +383,33 @@ function CodeBlock({ language, code }: CodeBlockProps) {
       </div>
     </div>
   );
-}
+});
 
 /**
  * 文本部分组件 - 支持打字机效果
  */
-function TextPart({
-  content,
-  showCursor,
-}: {
+
+interface TextPartProps {
   content: string;
   showCursor: boolean;
-}) {
+}
+
+// 使用 memo 减少重渲染
+const TextPart = memo(function TextPart({
+  content,
+  showCursor,
+}: TextPartProps) {
   const [displayedContent, setDisplayedContent] = useState(content);
   const [isTyping, setIsTyping] = useState(showCursor);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    // 清理之前的定时器
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+
     // 如果不在流式状态，直接显示完整内容
     if (!showCursor) {
       setDisplayedContent(content);
@@ -370,7 +442,7 @@ function TextPart({
             delay = 60; // 英文标点
           }
 
-          setTimeout(typeNextChar, delay);
+          typingTimeoutRef.current = setTimeout(typeNextChar, delay);
         } else {
           setIsTyping(false);
         }
@@ -378,17 +450,26 @@ function TextPart({
 
       typeNextChar();
     }
-  }, [content, showCursor]);
 
-  // 简单的 Markdown 转换
-  const formatted = displayedContent
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(
-      /`(.+?)`/g,
-      '<code class="bg-gray-100 px-1 py-0.5 rounded text-sm text-red-600">$1</code>',
-    )
-    .replace(/\n/g, "<br />");
+    // 清理函数
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
+  }, [content, showCursor, displayedContent.length]);
+
+  // 简单的 Markdown 转换 - 使用 useMemo 缓存结果
+  const formatted = useMemo(() => {
+    return displayedContent
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(
+        /`(.+?)`/g,
+        '<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm text-red-600 dark:text-red-400">$1</code>',
+      )
+      .replace(/\n/g, "<br />");
+  }, [displayedContent]);
 
   return (
     <span className="leading-relaxed inline">
@@ -399,7 +480,7 @@ function TextPart({
       {(showCursor || isTyping) && <TypingCursor />}
     </span>
   );
-}
+});
 
 /**
  * 打字机光标组件
@@ -410,7 +491,7 @@ function TypingCursor() {
   );
 }
 
-function SourceTag({ source }: { source: Source }) {
+const SourceTag = memo(function SourceTag({ source }: { source: Source }) {
   const icons = {
     official: Globe,
     github: Github,
@@ -424,11 +505,11 @@ function SourceTag({ source }: { source: Source }) {
       href={source.url || "#"}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-xs text-gray-600 transition-colors"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-xs text-gray-600 dark:text-gray-400 transition-colors"
     >
       <Icon className="w-3 h-3" />
       <span className="truncate max-w-[150px]">{source.title}</span>
       {source.url && <ExternalLink className="w-3 h-3" />}
     </a>
   );
-}
+});

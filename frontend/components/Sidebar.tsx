@@ -130,14 +130,14 @@ export function Sidebar({
 
   if (loading) {
     return (
-      <div className="w-full sm:w-72 bg-white border-r border-gray-200 flex items-center justify-center">
+      <div className="w-full sm:w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="w-full sm:w-72 bg-white border-r border-gray-200 flex flex-col h-full">
+    <div className="w-full sm:w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full">
       {/* 头部 */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center gap-2 mb-1">

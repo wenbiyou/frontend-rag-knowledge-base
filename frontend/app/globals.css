@@ -179,3 +179,62 @@ code {
     opacity: 0.7;
   }
 }
+
+/* 深色模式样式 */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+/* 深色模式滚动条 */
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* 深色模式行内代码 */
+.dark :not(pre) > code {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+/* 深色模式 Markdown */
+.dark .markdown h1,
+.dark .markdown h2,
+.dark .markdown h3,
+.dark .markdown h4 {
+  color: #f1f5f9;
+}
+
+.dark .markdown blockquote {
+  border-left-color: #334155;
+  color: #94a3b8;
+}
+
+.dark .markdown table {
+  border-color: #334155;
+}
+
+.dark .markdown th,
+.dark .markdown td {
+  border-color: #334155;
+}
+
+.dark .markdown th {
+  background: #1e293b;
+}
+
+.dark .markdown a {
+  color: #60a5fa;
+}
+
+.dark .markdown a:hover {
+  color: #93c5fd;
+}

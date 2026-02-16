@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AdminLayout } from "@/components/AdminLayout";
-import { FileText, BarChart3, ArrowRight } from "lucide-react";
+import { FileText, BarChart3, ArrowRight, Cloud } from "lucide-react";
 
 const quickActions = [
   {
@@ -23,6 +23,13 @@ const quickActions = [
     icon: BarChart3,
     href: "/admin/analytics",
     color: "bg-green-500",
+  },
+  {
+    title: "云端同步",
+    description: "导出或导入对话数据",
+    icon: Cloud,
+    href: "/admin/sync",
+    color: "bg-purple-500",
   },
 ];
 

@@ -1023,6 +1023,124 @@ def get_repo_sync_history(repo_name: str, limit: int = 50):
     }
 
 
+# ==================== 云端同步 API ====================
+
+class SyncConfigRequest(BaseModel):
+    """同步配置请求"""
+    provider: Optional[str] = None
+    endpoint: Optional[str] = None
+    credentials: Optional[Dict] = None
+    auto_sync: bool = False
+
+
+class ImportDataRequest(BaseModel):
+    """导入数据请求"""
+    data: Dict
+
+
+@app.get("/api/sync/config")
+def get_sync_config(user: Dict = Depends(get_current_user_required)):
+    """获取同步配置"""
+    from sync_cloud import get_sync_manager
+
+    manager = get_sync_manager()
+    config = manager.get_config(user["id"])
+
+    return {"config": config}
+
+
+@app.post("/api/sync/config")
+def set_sync_config(
+    request: SyncConfigRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """设置同步配置"""
+    from sync_cloud import get_sync_manager
+
+    manager = get_sync_manager()
+    result = manager.set_config(
+        user_id=user["id"],
+        provider=request.provider,
+        endpoint=request.endpoint,
+        credentials=request.credentials,
+        auto_sync=request.auto_sync
+    )
+
+    return result
+
+
+@app.post("/api/sync/export")
+def export_user_data(user: Dict = Depends(get_current_user_required)):
+    """导出用户数据"""
+    from sync_cloud import get_sync_manager
+
+    manager = get_sync_manager()
+    result = manager.export_data(user["id"])
+
+    return result
+
+
+@app.post("/api/sync/import")
+def import_user_data(
+    request: ImportDataRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """导入用户数据"""
+    from sync_cloud import get_sync_manager
+
+    manager = get_sync_manager()
+    result = manager.import_data(user["id"], request.data)
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result
+
+
+@app.get("/api/sync/history")
+def get_sync_history(
+    limit: int = Query(20, ge=1, le=100),
+    user: Dict = Depends(get_current_user_required)
+):
+    """获取同步历史"""
+    from sync_cloud import get_sync_manager
+
+    manager = get_sync_manager()
+    history = manager.get_sync_history(user["id"], limit=limit)
+
+    return {"history": history}
+
+
+@app.get("/api/sync/exports")
+def list_export_files(user: Dict = Depends(get_current_user_required)):
+    """列出导出文件"""
+    from sync_cloud import get_sync_manager
+
+    manager = get_sync_manager()
+    exports = manager.list_exports(user_id=user["id"])
+
+    return {"exports": exports}
+
+
+@app.get("/api/sync/download/{filename}")
+def download_export_file(filename: str):
+    """下载导出文件"""
+    from sync_cloud import get_sync_manager
+    from fastapi.responses import FileResponse
+
+    manager = get_sync_manager()
+    filepath = manager.get_export_file(filename)
+
+    if not filepath:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    return FileResponse(
+        path=filepath,
+        filename=filename,
+        media_type="application/json"
+    )
+
+
 # ==================== 文档管理 API ====================
 
 class DocumentListResponse(BaseModel):

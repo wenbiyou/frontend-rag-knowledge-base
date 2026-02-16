@@ -744,6 +744,126 @@ def get_repo_sync_history(repo_name: str, limit: int = 50):
     }
 
 
+# ==================== 文档管理 API ====================
+
+class DocumentListResponse(BaseModel):
+    """文档列表响应"""
+    documents: List[Dict]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class DocumentStatsResponse(BaseModel):
+    """文档统计响应"""
+    total_documents: int
+    total_chunks: int
+    total_chars: int
+    by_type: Dict[str, int]
+
+
+@app.get("/api/documents", response_model=DocumentListResponse)
+def list_documents(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    source_type: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None
+):
+    """
+    获取文档列表（分页）
+
+    参数：
+    - page: 页码
+    - page_size: 每页数量
+    - source_type: 来源类型筛选 (document/github/official)
+    - status: 状态筛选 (active/deleted)
+    - search: 搜索关键词
+    """
+    from document_manager import get_document_manager
+
+    manager = get_document_manager()
+    result = manager.list_documents(
+        page=page,
+        page_size=page_size,
+        source_type=source_type,
+        status=status,
+        search=search
+    )
+
+    return DocumentListResponse(**result)
+
+
+@app.get("/api/documents/stats", response_model=DocumentStatsResponse)
+def get_document_stats():
+    """获取文档统计信息"""
+    from document_manager import get_document_manager
+
+    manager = get_document_manager()
+    stats = manager.get_stats()
+
+    return DocumentStatsResponse(**stats)
+
+
+@app.get("/api/documents/{source:path}")
+def get_document_detail(source: str):
+    """获取单个文档详情"""
+    from document_manager import get_document_manager
+
+    manager = get_document_manager()
+    doc = manager.get_document(source)
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    return doc
+
+
+@app.delete("/api/documents/{source:path}")
+def delete_document(source: str):
+    """
+    删除文档
+
+    同时从向量数据库和文档管理数据库中删除
+    """
+    from document_manager import get_document_manager
+    from database import get_vector_store
+
+    manager = get_document_manager()
+    vector_store = get_vector_store()
+
+    doc = manager.get_document(source)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    vector_store.delete_by_source(source)
+    manager.delete_document(source)
+
+    return {
+        "success": True,
+        "message": f"文档 '{source}' 已删除"
+    }
+
+
+@app.post("/api/documents/sync")
+def sync_documents_from_vector_store():
+    """从向量数据库同步文档信息到管理数据库"""
+    from document_manager import get_document_manager
+    from database import get_vector_store
+
+    manager = get_document_manager()
+    vector_store = get_vector_store()
+
+    count = manager.sync_from_vector_store(vector_store)
+
+    return {
+        "success": True,
+        "message": f"已同步 {count} 个文档",
+        "count": count
+    }
+
+
 # ==================== 启动入口 ====================
 
 def main():

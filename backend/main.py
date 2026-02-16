@@ -132,8 +132,11 @@ class ChangePasswordRequest(BaseModel):
 def get_current_user_optional(request: Request) -> Optional[Dict]:
     """获取当前用户（可选）"""
     from auth import get_current_user
-    authorization = request.headers.get("Authorization")
-    return get_current_user(authorization)
+    try:
+        authorization = request.headers.get("Authorization")
+        return get_current_user(authorization)
+    except Exception:
+        return None
 
 
 def get_current_user_required(request: Request) -> Dict:

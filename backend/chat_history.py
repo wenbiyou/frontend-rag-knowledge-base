@@ -51,10 +51,18 @@ class ChatHistoryManager:
                 ON chat_messages(session_id, created_at)
             """)
 
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_sessions_user
-                ON chat_sessions(user_id, updated_at)
-            """)
+            try:
+                cursor.execute("ALTER TABLE chat_sessions ADD COLUMN user_id INTEGER")
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_sessions_user
+                    ON chat_sessions(user_id, updated_at)
+                """)
+            except sqlite3.OperationalError:
+                pass
 
             conn.commit()
 

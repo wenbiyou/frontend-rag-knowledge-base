@@ -312,3 +312,75 @@ export async function syncDocumentsFromVectorStore(): Promise<{ success: boolean
   }
   return response.json();
 }
+
+export interface AnalyticsOverview {
+  total_questions: number;
+  unique_sessions: number;
+  active_days: number;
+  avg_response_time_ms: number;
+  today_questions: number;
+  week_questions: number;
+}
+
+export interface DailyStat {
+  date: string;
+  total_questions: number;
+  unique_sessions: number;
+  avg_response_time_ms: number;
+}
+
+export interface PopularQuestion {
+  question: string;
+  count: number;
+  unique_askers: number;
+}
+
+export interface SourceUsage {
+  source: string;
+  count: number;
+}
+
+export interface HourlyDistribution {
+  hour: number;
+  count: number;
+}
+
+export async function getAnalyticsOverview(): Promise<AnalyticsOverview> {
+  const response = await fetch(`${API_BASE}/analytics/overview`);
+  if (!response.ok) {
+    throw new Error('获取统计总览失败');
+  }
+  return response.json();
+}
+
+export async function getAnalyticsDaily(days: number = 30): Promise<{ days: number; data: DailyStat[] }> {
+  const response = await fetch(`${API_BASE}/analytics/daily?days=${days}`);
+  if (!response.ok) {
+    throw new Error('获取每日统计失败');
+  }
+  return response.json();
+}
+
+export async function getAnalyticsPopular(limit: number = 20): Promise<{ questions: PopularQuestion[] }> {
+  const response = await fetch(`${API_BASE}/analytics/popular?limit=${limit}`);
+  if (!response.ok) {
+    throw new Error('获取热门问题失败');
+  }
+  return response.json();
+}
+
+export async function getAnalyticsSources(): Promise<{ sources: SourceUsage[] }> {
+  const response = await fetch(`${API_BASE}/analytics/sources`);
+  if (!response.ok) {
+    throw new Error('获取来源统计失败');
+  }
+  return response.json();
+}
+
+export async function getAnalyticsHourly(): Promise<{ distribution: HourlyDistribution[] }> {
+  const response = await fetch(`${API_BASE}/analytics/hourly`);
+  if (!response.ok) {
+    throw new Error('获取小时分布失败');
+  }
+  return response.json();
+}

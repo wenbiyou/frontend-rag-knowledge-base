@@ -155,16 +155,30 @@ def chat(request: ChatRequest):
         "source_filter": "可选，如 'official' 只查官方文档"
     }
     """
+    import time
+    from analytics import get_analytics_manager
+
+    start_time = time.time()
+
     try:
-        # 获取或创建会话
         if request.session_id and request.session_id in sessions:
             session = sessions[request.session_id]
         else:
             session = ChatSession()
             sessions[session.session_id] = session
 
-        # 执行对话
         result = session.chat(request.message, request.source_filter)
+
+        response_time_ms = int((time.time() - start_time) * 1000)
+
+        analytics = get_analytics_manager()
+        analytics.log_question(
+            question=request.message,
+            session_id=session.session_id,
+            source_filter=request.source_filter,
+            has_answer=len(result.get("sources", [])) > 0,
+            response_time_ms=response_time_ms
+        )
 
         return ChatResponse(
             answer=result["answer"],
@@ -182,12 +196,16 @@ def chat_stream(request: ChatRequest):
 
     返回 SSE (Server-Sent Events) 格式的流数据
     """
+    import time
+    from analytics import get_analytics_manager
+
+    start_time = time.time()
+    sources_found = []
+
     def generate():
+        nonlocal sources_found
         try:
             rag_engine = get_rag_engine()
-
-            # 先检索上下文（同步完成）
-            import asyncio
 
             docs, metas = rag_engine._retrieve(request.message, request.source_filter)
             print('docs', docs)
@@ -195,12 +213,20 @@ def chat_stream(request: ChatRequest):
             if not docs:
                 yield f"data: {json.dumps({'type': 'content', 'data': '根据现有知识库，我暂时没有找到与您问题相关的信息。'}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+                analytics = get_analytics_manager()
+                response_time_ms = int((time.time() - start_time) * 1000)
+                analytics.log_question(
+                    question=request.message,
+                    session_id=request.session_id,
+                    source_filter=request.source_filter,
+                    has_answer=False,
+                    response_time_ms=response_time_ms
+                )
                 return
 
-            # 构建提示词
             messages = rag_engine._build_prompt(request.message, docs, metas)
 
-            # 发送来源信息（前端可以先展示）
             sources = []
             seen = set()
             for meta in metas:
@@ -212,13 +238,23 @@ def chat_stream(request: ChatRequest):
                         "source": meta.get("source", "未知")
                     })
 
+            sources_found = sources
             yield f"data: {json.dumps({'type': 'sources', 'data': sources}, ensure_ascii=False)}\n\n"
 
-            # 流式生成回答
             for chunk in rag_engine.llm_client.chat_stream(messages):
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
 
             yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+            analytics = get_analytics_manager()
+            response_time_ms = int((time.time() - start_time) * 1000)
+            analytics.log_question(
+                question=request.message,
+                session_id=request.session_id,
+                source_filter=request.source_filter,
+                has_answer=len(sources_found) > 0,
+                response_time_ms=response_time_ms
+            )
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'data': str(e)}, ensure_ascii=False)}\n\n"
@@ -862,6 +898,73 @@ def sync_documents_from_vector_store():
         "message": f"已同步 {count} 个文档",
         "count": count
     }
+
+
+# ==================== 统计分析 API ====================
+
+class AnalyticsOverviewResponse(BaseModel):
+    """统计总览响应"""
+    total_questions: int
+    unique_sessions: int
+    active_days: int
+    avg_response_time_ms: int
+    today_questions: int
+    week_questions: int
+
+
+@app.get("/api/analytics/overview", response_model=AnalyticsOverviewResponse)
+def get_analytics_overview():
+    """获取统计总览"""
+    from analytics import get_analytics_manager
+
+    manager = get_analytics_manager()
+    stats = manager.get_overview()
+
+    return AnalyticsOverviewResponse(**stats)
+
+
+@app.get("/api/analytics/daily")
+def get_analytics_daily(days: int = Query(30, ge=1, le=365)):
+    """获取每日统计趋势"""
+    from analytics import get_analytics_manager
+
+    manager = get_analytics_manager()
+    stats = manager.get_daily_stats(days=days)
+
+    return {"days": days, "data": stats}
+
+
+@app.get("/api/analytics/popular")
+def get_analytics_popular(limit: int = Query(20, ge=1, le=100)):
+    """获取热门问题排行"""
+    from analytics import get_analytics_manager
+
+    manager = get_analytics_manager()
+    questions = manager.get_popular_questions(limit=limit)
+
+    return {"questions": questions}
+
+
+@app.get("/api/analytics/sources")
+def get_analytics_sources():
+    """获取来源使用统计"""
+    from analytics import get_analytics_manager
+
+    manager = get_analytics_manager()
+    sources = manager.get_source_usage()
+
+    return {"sources": sources}
+
+
+@app.get("/api/analytics/hourly")
+def get_analytics_hourly():
+    """获取小时分布统计"""
+    from analytics import get_analytics_manager
+
+    manager = get_analytics_manager()
+    distribution = manager.get_hourly_distribution()
+
+    return {"distribution": distribution}
 
 
 # ==================== 启动入口 ====================

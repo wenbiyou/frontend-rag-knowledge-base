@@ -130,14 +130,14 @@ export function Sidebar({
 
   if (loading) {
     return (
-      <div className="w-72 bg-white border-r border-gray-200 flex items-center justify-center">
+      <div className="w-full sm:w-72 bg-white border-r border-gray-200 flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="w-72 bg-white border-r border-gray-200 flex flex-col h-full">
+    <div className="w-full sm:w-72 bg-white border-r border-gray-200 flex flex-col h-full">
       {/* 头部 */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center gap-2 mb-1">
@@ -199,7 +199,7 @@ export function Sidebar({
                     <div
                       key={session.session_id}
                       onClick={() => onSessionSelect(session.session_id)}
-                      className={`flex items-center justify-between w-full px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors ${
+                      className={`group flex items-center justify-between w-full px-3 py-3 sm:py-2 text-sm rounded-lg cursor-pointer transition-colors active:scale-[0.98] ${
                         currentSessionId === session.session_id
                           ? "bg-primary-100 text-primary-700"
                           : "text-gray-600 hover:bg-gray-100"
@@ -213,9 +213,10 @@ export function Sidebar({
                         onClick={(e) =>
                           handleDeleteSession(session.session_id, e)
                         }
-                        className="opacity-0 group-hover:opacity-100 hover:text-red-600 p-1"
+                        className="sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-600 p-2 sm:p-1 rounded sm:rounded-none hover:bg-red-50 sm:hover:bg-transparent transition-all"
+                        title="删除会话"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-4 h-4 sm:w-3 sm:h-3" />
                       </button>
                     </div>
                   ))
@@ -350,7 +351,7 @@ function SyncButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm transition-colors ${
+      className={`flex items-center gap-2 w-full px-3 py-3 sm:py-2 rounded-lg text-sm transition-all active:scale-[0.98] ${
         primary
           ? "bg-primary-600 text-white hover:bg-primary-700 disabled:bg-primary-300"
           : "bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-400"
@@ -376,13 +377,13 @@ function SourceFilterButton({
   return (
     <button
       onClick={onClick}
-      className="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+      className="flex items-center justify-between w-full px-3 py-3 sm:py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-all active:scale-[0.98] active:bg-gray-200"
     >
-      <div className="flex items-center gap-2">
-        <span className="text-gray-400">{icon}</span>
-        <span className="truncate max-w-[140px]">{label}</span>
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <span className="text-gray-400 flex-shrink-0">{icon}</span>
+        <span className="truncate">{label}</span>
       </div>
-      <span className="text-gray-400 text-xs">{count}</span>
+      <span className="text-gray-400 text-xs flex-shrink-0 ml-2">{count}</span>
     </button>
   );
 }

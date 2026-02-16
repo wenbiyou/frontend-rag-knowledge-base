@@ -98,35 +98,35 @@ function MessageItem({ message }: MessageItemProps) {
   const isUser = message.role === "user";
 
   return (
-    <div className={`flex gap-4 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+    <div className={`flex gap-2 sm:gap-4 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
       {/* 头像 */}
       <div
-        className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+        className={`flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
           isUser
             ? "bg-primary-600"
             : "bg-gradient-to-br from-primary-500 to-purple-600"
         }`}
       >
         {isUser ? (
-          <User className="w-5 h-5 text-white" />
+          <User className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
         ) : (
-          <Bot className="w-5 h-5 text-white" />
+          <Bot className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
         )}
       </div>
 
       {/* 消息内容 */}
-      <div className={`max-w-[85%] ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[85%] sm:max-w-[80%] ${isUser ? "items-end" : "items-start"}`}>
         <div
-          className={`px-4 py-3 rounded-2xl ${
+          className={`px-3 py-2 sm:px-4 sm:py-3 rounded-2xl ${
             isUser
               ? "bg-primary-600 text-white rounded-tr-sm"
               : "bg-white border border-gray-200 rounded-tl-sm"
           }`}
         >
           {isUser ? (
-            <p className="text-white">{message.content}</p>
+            <p className="text-white text-sm sm:text-base">{message.content}</p>
           ) : (
-            <div className="markdown text-gray-800">
+            <div className="markdown text-gray-800 text-sm sm:text-base">
               <StreamingContent
                 content={message.content}
                 isStreaming={message.isStreaming}

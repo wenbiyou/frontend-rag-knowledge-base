@@ -1328,6 +1328,191 @@ def get_analytics_hourly():
     return {"distribution": distribution}
 
 
+# ==================== API Key 管理 API ====================
+
+class CreateAPIKeyRequest(BaseModel):
+    """创建 API Key 请求"""
+    name: str
+    permissions: str = "read"
+
+
+class APIKeyResponse(BaseModel):
+    """API Key 响应"""
+    id: int
+    name: str
+    key: Optional[str] = None
+    key_prefix: str
+    permissions: str
+    is_active: bool
+    created_at: str
+    last_used: Optional[str] = None
+    usage_count: int
+
+
+@app.get("/api/keys")
+def list_api_keys(user: Dict = Depends(get_current_user_required)):
+    """获取用户的 API Keys 列表"""
+    from api_keys import get_api_key_manager
+
+    manager = get_api_key_manager()
+    keys = manager.list_keys(user["id"])
+
+    return {"keys": keys}
+
+
+@app.post("/api/keys", response_model=APIKeyResponse)
+def create_api_key(
+    request: CreateAPIKeyRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """创建新的 API Key"""
+    from api_keys import get_api_key_manager
+
+    manager = get_api_key_manager()
+    result = manager.create_key(
+        user_id=user["id"],
+        name=request.name,
+        permissions=request.permissions
+    )
+
+    return APIKeyResponse(
+        id=result["id"],
+        name=result["name"],
+        key=result["key"],
+        key_prefix=result["key_prefix"],
+        permissions=result["permissions"],
+        is_active=True,
+        created_at=result["created_at"]
+    )
+
+
+@app.delete("/api/keys/{key_id}")
+def revoke_api_key(
+    key_id: int,
+    user: Dict = Depends(get_current_user_required)
+):
+    """撤销/删除 API Key"""
+    from api_keys import get_api_key_manager
+
+    manager = get_api_key_manager()
+    success = manager.delete_key(key_id, user["id"])
+
+    if not success:
+        raise HTTPException(status_code=404, detail="API Key 不存在")
+
+    return {"success": True, "message": "API Key 已删除"}
+
+
+@app.get("/api/keys/stats")
+def get_api_key_stats(user: Dict = Depends(get_current_user_required)):
+    """获取 API Key 统计"""
+    from api_keys import get_api_key_manager
+
+    manager = get_api_key_manager()
+    stats = manager.get_key_stats(user["id"])
+
+    return stats
+
+
+# ==================== 开放 API (需要 API Key 认证) ====================
+
+def get_user_from_api_key(request: Request) -> Optional[Dict]:
+    """从 API Key 或 Token 获取用户"""
+    from api_keys import authenticate_with_api_key
+    from auth import get_current_user
+
+    api_key = request.headers.get("X-API-Key")
+    if api_key:
+        return authenticate_with_api_key(api_key)
+
+    authorization = request.headers.get("Authorization")
+    if authorization:
+        return get_current_user(authorization)
+
+    return None
+
+
+@app.post("/api/v1/chat")
+def api_v1_chat(
+    request: ChatRequest,
+    http_request: Request
+):
+    """开放 API: 对话问答（需要 API Key 或 Token）"""
+    user = get_user_from_api_key(http_request)
+    if not user:
+        raise HTTPException(status_code=401, detail="需要有效的 API Key 或 Token")
+
+    import time
+    from analytics import get_analytics_manager
+
+    start_time = time.time()
+
+    try:
+        rag_engine = get_rag_engine()
+        docs, metas = rag_engine._retrieve(request.message, request.source_filter)
+
+        if not docs:
+            return {"answer": "根据现有知识库，我暂时没有找到与您问题相关的信息。", "sources": []}
+
+        messages = rag_engine._build_prompt(request.message, docs, metas)
+        answer = rag_engine.llm_client.chat(messages)
+
+        sources = []
+        seen = set()
+        for meta in metas:
+            key = f"{meta.get('source')}:{meta.get('title')}"
+            if key not in seen:
+                seen.add(key)
+                sources.append({
+                    "title": meta.get("title", "未命名"),
+                    "source": meta.get("source", "未知")
+                })
+
+        response_time_ms = int((time.time() - start_time) * 1000)
+
+        analytics = get_analytics_manager()
+        analytics.log_question(
+            question=request.message,
+            session_id=f"api_{user['id']}",
+            source_filter=request.source_filter,
+            has_answer=len(sources) > 0,
+            response_time_ms=response_time_ms
+        )
+
+        return {"answer": answer, "sources": sources}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/documents")
+def api_v1_documents(http_request: Request):
+    """开放 API: 获取文档列表"""
+    user = get_user_from_api_key(http_request)
+    if not user:
+        raise HTTPException(status_code=401, detail="需要有效的 API Key 或 Token")
+
+    from document_manager import get_document_manager
+
+    manager = get_document_manager()
+    stats = manager.get_stats()
+
+    return stats
+
+
+@app.get("/api/v1/sources")
+def api_v1_sources(http_request: Request):
+    """开放 API: 获取来源列表"""
+    user = get_user_from_api_key(http_request)
+    if not user:
+        raise HTTPException(status_code=401, detail="需要有效的 API Key 或 Token")
+
+    vector_store = get_vector_store()
+    sources = vector_store.list_sources()
+
+    return {"sources": sources}
+
+
 # ==================== 启动入口 ====================
 
 def main():

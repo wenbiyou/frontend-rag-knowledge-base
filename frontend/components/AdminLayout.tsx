@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   Cloud,
+  Key,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -26,6 +27,7 @@ const navItems = [
   { href: "/admin/documents", label: "文档管理", icon: FileText },
   { href: "/admin/analytics", label: "使用统计", icon: BarChart3 },
   { href: "/admin/sync", label: "云端同步", icon: Cloud },
+  { href: "/admin/api-keys", label: "API Key", icon: Key },
 ];
 
 export function AdminLayout({ children }: AdminLayoutProps) {

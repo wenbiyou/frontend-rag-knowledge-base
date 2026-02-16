@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AdminLayout } from "@/components/AdminLayout";
-import { FileText, BarChart3, ArrowRight, Cloud } from "lucide-react";
+import { FileText, BarChart3, ArrowRight, Cloud, Key } from "lucide-react";
 
 const quickActions = [
   {
@@ -30,6 +30,13 @@ const quickActions = [
     icon: Cloud,
     href: "/admin/sync",
     color: "bg-purple-500",
+  },
+  {
+    title: "API Key",
+    description: "创建和管理 API Key",
+    icon: Key,
+    href: "/admin/api-keys",
+    color: "bg-orange-500",
   },
 ];
 

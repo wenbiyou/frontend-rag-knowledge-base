@@ -85,6 +85,8 @@ class UserManager:
                     email TEXT UNIQUE,
                     password_hash TEXT NOT NULL,
                     role TEXT DEFAULT 'user',
+                    expertise TEXT,
+                    bio TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_login TIMESTAMP
                 )
@@ -99,6 +101,21 @@ class UserManager:
                 CREATE INDEX IF NOT EXISTS idx_users_email
                 ON users(email)
             """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_users_role
+                ON users(role)
+            """)
+
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN expertise TEXT")
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT")
+            except sqlite3.OperationalError:
+                pass
 
             admin_exists = cursor.execute(
                 "SELECT COUNT(*) FROM users WHERE role = 'admin'"
@@ -190,7 +207,7 @@ class UserManager:
             cursor = conn.cursor()
 
             cursor.execute(
-                "SELECT id, username, email, role, created_at, last_login FROM users WHERE id = ?",
+                "SELECT id, username, email, role, expertise, bio, created_at, last_login FROM users WHERE id = ?",
                 (user_id,)
             )
 
@@ -222,14 +239,93 @@ class UserManager:
             cursor = conn.cursor()
 
             cursor.execute(
-                "SELECT id, username, email, role, created_at, last_login FROM users ORDER BY created_at DESC"
+                "SELECT id, username, email, role, expertise, bio, created_at, last_login FROM users ORDER BY created_at DESC"
             )
 
             return [dict(row) for row in cursor.fetchall()]
 
+    def list_experts(self) -> list:
+        """获取所有专家列表"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT id, username, email, expertise, bio, created_at FROM users WHERE role = 'expert' ORDER BY created_at DESC"
+            )
+
+            return [dict(row) for row in cursor.fetchall()]
+
+    def set_expert(self, user_id: int, expertise: str = None, bio: str = None) -> bool:
+        """设置用户为专家"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE users
+                SET role = 'expert', expertise = ?, bio = ?
+                WHERE id = ?
+                """,
+                (expertise, bio, user_id)
+            )
+
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def remove_expert(self, user_id: int) -> bool:
+        """移除专家身份"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE users
+                SET role = 'user', expertise = NULL, bio = NULL
+                WHERE id = ? AND role = 'expert'
+                """,
+                (user_id,)
+            )
+
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def update_expert_profile(
+        self,
+        user_id: int,
+        expertise: str = None,
+        bio: str = None
+    ) -> bool:
+        """更新专家资料"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            updates = []
+            values = []
+
+            if expertise is not None:
+                updates.append("expertise = ?")
+                values.append(expertise)
+            if bio is not None:
+                updates.append("bio = ?")
+                values.append(bio)
+
+            if not updates:
+                return False
+
+            values.append(user_id)
+
+            cursor.execute(
+                f"UPDATE users SET {', '.join(updates)} WHERE id = ?",
+                values
+            )
+
+            conn.commit()
+            return cursor.rowcount > 0
+
     def update_user(self, user_id: int, **kwargs) -> bool:
         """更新用户信息"""
-        allowed_fields = {"email", "role"}
+        allowed_fields = {"email", "role", "expertise", "bio"}
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
 
         if not updates:

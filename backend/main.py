@@ -1846,6 +1846,116 @@ def get_problematic_messages(limit: int = Query(20, ge=1, le=50)):
     return {"problems": problems}
 
 
+# ==================== 专家管理 API ====================
+
+class SetExpertRequest(BaseModel):
+    """设置专家请求"""
+    user_id: int
+    expertise: str
+    bio: Optional[str] = None
+
+
+class UpdateExpertRequest(BaseModel):
+    """更新专家资料请求"""
+    expertise: Optional[str] = None
+    bio: Optional[str] = None
+
+
+@app.get("/api/experts")
+def list_experts():
+    """获取专家列表"""
+    from auth import get_user_manager
+
+    manager = get_user_manager()
+    experts = manager.list_experts()
+
+    return {"experts": experts}
+
+
+@app.post("/api/experts")
+def set_expert(
+    request: SetExpertRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """设置用户为专家（需要管理员权限）"""
+    from auth import get_user_manager
+
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    manager = get_user_manager()
+    success = manager.set_expert(
+        user_id=request.user_id,
+        expertise=request.expertise,
+        bio=request.bio
+    )
+
+    if not success:
+        raise HTTPException(status_code=400, detail="设置专家失败")
+
+    return {"success": True, "message": "已设置为专家"}
+
+
+@app.delete("/api/experts/{user_id}")
+def remove_expert(
+    user_id: int,
+    user: Dict = Depends(get_current_user_required)
+):
+    """移除专家身份（需要管理员权限）"""
+    from auth import get_user_manager
+
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+    manager = get_user_manager()
+    success = manager.remove_expert(user_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="专家不存在")
+
+    return {"success": True, "message": "已移除专家身份"}
+
+
+@app.put("/api/experts/profile")
+def update_expert_profile(
+    request: UpdateExpertRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """更新专家资料"""
+    from auth import get_user_manager
+
+    if user["role"] != "expert":
+        raise HTTPException(status_code=403, detail="仅专家可更新资料")
+
+    manager = get_user_manager()
+    success = manager.update_expert_profile(
+        user_id=user["id"],
+        expertise=request.expertise,
+        bio=request.bio
+    )
+
+    return {"success": success}
+
+
+@app.get("/api/experts/stats")
+def get_expert_stats():
+    """获取专家统计"""
+    from auth import get_user_manager
+
+    manager = get_user_manager()
+    experts = manager.list_experts()
+
+    expertise_count = {}
+    for expert in experts:
+        exp = expert.get("expertise", "未分类")
+        expertise_count[exp] = expertise_count.get(exp, 0) + 1
+
+    return {
+        "total_experts": len(experts),
+        "by_expertise": expertise_count
+    }
+
+
 # ==================== 启动入口 ====================
 
 def main():

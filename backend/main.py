@@ -2056,6 +2056,159 @@ def get_report_history(
     return {"reports": reports}
 
 
+# ==================== 知识图谱 API ====================
+
+@app.get("/api/graph/nodes")
+def get_knowledge_nodes(category: Optional[str] = None):
+    """获取知识节点列表"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+
+    if category:
+        nodes = graph.get_nodes_by_category(category)
+    else:
+        nodes = graph.get_all_nodes()
+
+    return {"nodes": nodes}
+
+
+@app.get("/api/graph/nodes/{node_id}")
+def get_knowledge_node_detail(node_id: int):
+    """获取知识节点详情"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+    node = graph.get_node_detail(node_id)
+
+    if not node:
+        raise HTTPException(status_code=404, detail="节点不存在")
+
+    return node
+
+
+@app.get("/api/graph/data")
+def get_graph_visualization_data():
+    """获取图谱可视化数据"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+    return graph.get_graph_data()
+
+
+@app.get("/api/graph/categories")
+def get_knowledge_categories():
+    """获取知识类别列表"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+    categories = graph.get_categories()
+
+    return {"categories": categories}
+
+
+@app.get("/api/graph/relations")
+def get_knowledge_relations():
+    """获取知识关系列表"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+    relations = graph.get_all_relations()
+
+    return {"relations": relations}
+
+
+@app.get("/api/graph/paths")
+def get_learning_paths(difficulty: Optional[int] = None):
+    """获取学习路径"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+    paths = graph.get_learning_paths(difficulty)
+
+    return {"paths": paths}
+
+
+class PathRecommendRequest(BaseModel):
+    """路径推荐请求"""
+    known_nodes: List[str]
+
+
+@app.post("/api/graph/recommend")
+def recommend_learning_path(request: PathRecommendRequest):
+    """推荐学习路径"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+    recommendation = graph.recommend_path(request.known_nodes)
+
+    return recommendation
+
+
+@app.get("/api/graph/search")
+def search_knowledge_nodes(query: str = Query(..., min_length=1)):
+    """搜索知识节点"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+    results = graph.search_nodes(query)
+
+    return {"results": results}
+
+
+class AddNodeRequest(BaseModel):
+    """添加节点请求"""
+    name: str
+    category: str
+    description: Optional[str] = None
+    difficulty: int = 1
+    importance: int = 1
+
+
+class AddRelationRequest(BaseModel):
+    """添加关系请求"""
+    source_name: str
+    target_name: str
+    relation_type: str
+    weight: float = 1.0
+
+
+@app.post("/api/graph/nodes")
+def add_knowledge_node(request: AddNodeRequest):
+    """添加知识节点"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+    result = graph.add_node(
+        name=request.name,
+        category=request.category,
+        description=request.description,
+        difficulty=request.difficulty,
+        importance=request.importance
+    )
+
+    return {"success": True, "node": result}
+
+
+@app.post("/api/graph/relations")
+def add_knowledge_relation(request: AddRelationRequest):
+    """添加知识关系"""
+    from knowledge_graph import get_knowledge_graph
+
+    graph = get_knowledge_graph()
+    success = graph.add_relation(
+        source_name=request.source_name,
+        target_name=request.target_name,
+        relation_type=request.relation_type,
+        weight=request.weight
+    )
+
+    if not success:
+        raise HTTPException(status_code=400, detail="源节点或目标节点不存在")
+
+    return {"success": True}
+
+
 # ==================== 启动入口 ====================
 
 def main():

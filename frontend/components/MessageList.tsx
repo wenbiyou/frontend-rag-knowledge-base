@@ -51,9 +51,9 @@ export const MessageList = memo(function MessageList({
   }, []);
 
   // 为消息生成唯一的key
-  const getMessageKey = (message: ChatMessage, index: number) => {
+  const getMessageKey = (message: ChatMessage, index: number): string => {
     // 如果消息有id，使用id，否则使用索引和内容的组合
-    if ("id" in message) {
+    if ("id" in message && typeof message.id === "string") {
       return message.id;
     }
     // 使用时间戳和内容的哈希作为唯一标识
@@ -152,6 +152,16 @@ const MessageItem = memo(function MessageItem({
   onPreview,
 }: MessageItemProps) {
   const isUser = message.role === "user";
+  const messageRef = useRef<HTMLDivElement>(null);
+
+  const handleHeadingClick = useCallback((headingId: string) => {
+    if (messageRef.current) {
+      const headingElement = messageRef.current.querySelector(`#${headingId}`);
+      if (headingElement) {
+        headingElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }, []);
 
   return (
     <div
@@ -175,7 +185,15 @@ const MessageItem = memo(function MessageItem({
       {/* 消息内容 */}
       <div
         className={`max-w-[85%] sm:max-w-[80%] ${isUser ? "items-end" : "items-start"}`}
+        ref={messageRef}
       >
+        {/* 目录导航 - 仅对 AI 消息显示 */}
+        {!isUser && !message.isStreaming && (
+          <div className="mb-2">
+            <TableOfContents content={message.content} onHeadingClick={handleHeadingClick} />
+          </div>
+        )}
+
         <div
           className={`px-3 py-2 sm:px-4 sm:py-3 rounded-2xl ${
             isUser
@@ -187,7 +205,7 @@ const MessageItem = memo(function MessageItem({
             <p className="text-white text-sm sm:text-base">{message.content}</p>
           ) : (
             <div className="markdown text-gray-800 dark:text-gray-200 text-sm sm:text-base">
-              <StreamingContent
+              <CollapsibleContent
                 content={message.content}
                 isStreaming={message.isStreaming}
               />
@@ -277,6 +295,153 @@ const StreamingContent = memo(function StreamingContent({
         );
       })}
     </>
+  );
+});
+
+/**
+ * 可折叠内容组件
+ * 长回答自动折叠，支持展开/收起
+ */
+interface CollapsibleContentProps {
+  content: string;
+  isStreaming?: boolean;
+  threshold?: number;
+}
+
+const CollapsibleContent = memo(function CollapsibleContent({
+  content,
+  isStreaming = false,
+  threshold = 500,
+}: CollapsibleContentProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const shouldCollapse = !isStreaming && content.length > threshold;
+
+  const displayContent = shouldCollapse && !isExpanded
+    ? content.substring(0, threshold) + "..."
+    : content;
+
+  return (
+    <div className="relative">
+      <StreamingContent content={displayContent} isStreaming={isStreaming} />
+      {shouldCollapse && (
+        <div className="mt-3">
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1"
+          >
+            {isExpanded ? (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                </svg>
+                收起内容
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+                展开全部 ({Math.ceil((content.length - threshold) / 100) * 100} 字)
+              </>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
+
+/**
+ * 目录导航组件
+ * 从内容中提取标题并生成可点击的目录
+ */
+interface TableOfContentsProps {
+  content: string;
+  onHeadingClick?: (headingId: string) => void;
+}
+
+interface HeadingItem {
+  id: string;
+  text: string;
+  level: number;
+}
+
+const TableOfContents = memo(function TableOfContents({
+  content,
+  onHeadingClick,
+}: TableOfContentsProps) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const headings = useMemo(() => {
+    const headingRegex = /^(#{1,6})\s+(.+)$/gm;
+    const matches: HeadingItem[] = [];
+    let match;
+
+    while ((match = headingRegex.exec(content)) !== null) {
+      const level = match[1].length;
+      const text = match[2].trim();
+      const id = `heading-${matches.length}-${text.toLowerCase().replace(/\s+/g, "-")}`;
+      matches.push({ id, text, level });
+    }
+
+    return matches;
+  }, [content]);
+
+  if (headings.length === 0) return null;
+
+  const handleClick = (headingId: string) => {
+    onHeadingClick?.(headingId);
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+        title="目录导航"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+        </svg>
+        <span>目录 ({headings.length})</span>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10 max-h-80 overflow-y-auto">
+          <div className="p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">目录导航</h4>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <nav className="space-y-1">
+              {headings.map((heading) => (
+                <button
+                  key={heading.id}
+                  onClick={() => handleClick(heading.id)}
+                  className={`block w-full text-left text-sm py-1 px-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                    heading.level === 1
+                      ? "font-semibold text-gray-900 dark:text-gray-100"
+                      : heading.level === 2
+                        ? "pl-4 text-gray-700 dark:text-gray-300"
+                        : "pl-6 text-gray-600 dark:text-gray-400"
+                  }`}
+                >
+                  {heading.text}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </div>
+      )}
+    </div>
   );
 });
 

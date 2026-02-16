@@ -1750,6 +1750,102 @@ def batch_analyze_code(files: List[CodeUploadRequest]):
     return {"results": results}
 
 
+# ==================== 问答反馈 API ====================
+
+class FeedbackRequest(BaseModel):
+    """反馈请求"""
+    message_id: str
+    session_id: str
+    feedback_type: str
+    comment: Optional[str] = None
+
+
+class FeedbackStatsResponse(BaseModel):
+    """反馈统计响应"""
+    period_days: int
+    total_feedback: int
+    by_type: Dict[str, int]
+    sessions_with_feedback: int
+    error_reports: int
+    satisfaction_rate: float
+
+
+@app.post("/api/feedback")
+def submit_feedback(
+    request: FeedbackRequest,
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
+    """提交反馈（点赞/踩/错误标记）"""
+    from feedback import get_feedback_manager
+
+    manager = get_feedback_manager()
+    user_id = user["id"] if user else None
+
+    result = manager.submit_feedback(
+        message_id=request.message_id,
+        session_id=request.session_id,
+        feedback_type=request.feedback_type,
+        user_id=user_id,
+        comment=request.comment
+    )
+
+    return result
+
+
+@app.get("/api/feedback/message/{message_id}")
+def get_message_feedback(message_id: str):
+    """获取消息的反馈统计"""
+    from feedback import get_feedback_manager
+
+    manager = get_feedback_manager()
+    return manager.get_message_feedback(message_id)
+
+
+@app.get("/api/feedback/user/{message_id}")
+def get_user_feedback_status(
+    message_id: str,
+    user: Dict = Depends(get_current_user_required)
+):
+    """获取用户对消息的反馈状态"""
+    from feedback import get_feedback_manager
+
+    manager = get_feedback_manager()
+    feedback_type = manager.get_user_feedback(message_id, user["id"])
+
+    return {"feedback_type": feedback_type}
+
+
+@app.get("/api/feedback/stats", response_model=FeedbackStatsResponse)
+def get_feedback_stats(days: int = Query(7, ge=1, le=30)):
+    """获取反馈统计"""
+    from feedback import get_feedback_manager
+
+    manager = get_feedback_manager()
+    return manager.get_feedback_stats(days=days)
+
+
+@app.get("/api/feedback/recent")
+def get_recent_feedback(limit: int = Query(50, ge=1, le=100)):
+    """获取最近的反馈"""
+    from feedback import get_feedback_manager
+
+    manager = get_feedback_manager()
+    feedbacks = manager.get_recent_feedback(limit=limit)
+
+    return {"feedbacks": feedbacks}
+
+
+@app.get("/api/feedback/problems")
+def get_problematic_messages(limit: int = Query(20, ge=1, le=50)):
+    """获取问题消息列表"""
+    from feedback import get_feedback_manager
+
+    manager = get_feedback_manager()
+    problems = manager.get_problematic_messages(limit=limit)
+
+    return {"problems": problems}
+
+
 # ==================== 启动入口 ====================
 
 def main():

@@ -2209,6 +2209,216 @@ def add_knowledge_relation(request: AddRelationRequest):
     return {"success": True}
 
 
+# ==================== AI 导师 API ====================
+
+class AssessmentRequest(BaseModel):
+    """评估请求"""
+    skill: str
+    answers: List[int]
+
+
+class LearningPlanRequest(BaseModel):
+    """学习计划请求"""
+    name: str
+    skills: List[str]
+    timeline_weeks: int = 4
+    description: Optional[str] = None
+
+
+class ProgressUpdateRequest(BaseModel):
+    """进度更新请求"""
+    plan_id: int
+    skill_name: str
+    progress: int
+    notes: Optional[str] = None
+
+
+class GrowthRecordRequest(BaseModel):
+    """成长记录请求"""
+    record_type: str
+    content: str
+
+
+@app.get("/api/mentor/assessment/{skill}")
+def get_assessment_questions(skill: str):
+    """获取技能评估问题"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    questions = mentor.get_assessment_questions(skill)
+
+    if not questions:
+        raise HTTPException(status_code=404, detail="未找到该技能的评估问题")
+
+    return {"skill": skill, "questions": questions}
+
+
+@app.post("/api/mentor/assessment")
+def submit_skill_assessment(
+    request: AssessmentRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """提交技能评估"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    result = mentor.submit_assessment(user["id"], request.skill, request.answers)
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result
+
+
+@app.get("/api/mentor/skills")
+def get_user_skills(user: Dict = Depends(get_current_user_required)):
+    """获取用户技能评估"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    skills = mentor.get_user_skills(user["id"])
+
+    return {"skills": skills}
+
+
+@app.post("/api/mentor/plans")
+def create_learning_plan(
+    request: LearningPlanRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """创建学习计划"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    plan = mentor.create_learning_plan(
+        user_id=user["id"],
+        name=request.name,
+        skills=request.skills,
+        timeline_weeks=request.timeline_weeks,
+        description=request.description
+    )
+
+    return plan
+
+
+@app.get("/api/mentor/plans")
+def get_user_learning_plans(user: Dict = Depends(get_current_user_required)):
+    """获取用户学习计划"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    plans = mentor.get_user_plans(user["id"])
+
+    return {"plans": plans}
+
+
+@app.put("/api/mentor/plans/progress")
+def update_learning_progress(
+    request: ProgressUpdateRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """更新学习进度"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    success = mentor.update_plan_progress(
+        plan_id=request.plan_id,
+        skill_name=request.skill_name,
+        progress=request.progress,
+        notes=request.notes
+    )
+
+    if not success:
+        raise HTTPException(status_code=404, detail="计划或技能不存在")
+
+    return {"success": True}
+
+
+@app.get("/api/mentor/articles")
+def get_article_recommendations(
+    category: Optional[str] = None,
+    unread_only: bool = False,
+    limit: int = Query(10, ge=1, le=50),
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
+    """获取文章推荐"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    user_id = user["id"] if user else None
+
+    articles = mentor.get_article_recommendations(
+        user_id=user_id,
+        category=category,
+        unread_only=unread_only,
+        limit=limit
+    )
+
+    return {"articles": articles}
+
+
+@app.post("/api/mentor/articles/{article_id}/read")
+def mark_article_as_read(article_id: int):
+    """标记文章已读"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    success = mentor.mark_article_read(article_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="文章不存在")
+
+    return {"success": True}
+
+
+@app.post("/api/mentor/growth")
+def add_growth_record(
+    request: GrowthRecordRequest,
+    user: Dict = Depends(get_current_user_required)
+):
+    """添加成长记录"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    record = mentor.add_growth_record(
+        user_id=user["id"],
+        record_type=request.record_type,
+        content=request.content
+    )
+
+    return record
+
+
+@app.get("/api/mentor/growth")
+def get_growth_records(
+    record_type: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100),
+    user: Dict = Depends(get_current_user_required)
+):
+    """获取成长记录"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    records = mentor.get_growth_records(
+        user_id=user["id"],
+        record_type=record_type,
+        limit=limit
+    )
+
+    return {"records": records}
+
+
+@app.get("/api/mentor/summary")
+def get_growth_summary(user: Dict = Depends(get_current_user_required)):
+    """获取成长总结"""
+    from ai_mentor import get_ai_mentor
+
+    mentor = get_ai_mentor()
+    summary = mentor.get_growth_summary(user["id"])
+
+    return summary
+
+
 # ==================== 启动入口 ====================
 
 def main():

@@ -1956,6 +1956,106 @@ def get_expert_stats():
     }
 
 
+# ==================== 主动推荐 API ====================
+
+@app.get("/api/recommendations")
+def get_recommendations(
+    limit: int = Query(5, ge=1, le=10),
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
+    """获取个性化推荐"""
+    from recommendation import get_recommendation_engine
+
+    engine = get_recommendation_engine()
+    user_id = user["id"] if user else None
+
+    recommendations = engine.generate_recommendations(user_id, limit)
+
+    return {"recommendations": recommendations}
+
+
+@app.get("/api/recommendations/interests")
+def get_user_interests(
+    limit: int = Query(10, ge=1, le=20),
+    user: Dict = Depends(get_current_user_required)
+):
+    """获取用户兴趣列表"""
+    from recommendation import get_recommendation_engine
+
+    engine = get_recommendation_engine()
+    interests = engine.get_user_interests(user["id"], limit)
+
+    return {"interests": interests}
+
+
+@app.post("/api/recommendations/analyze")
+def analyze_user_interests(
+    user: Dict = Depends(get_current_user_required)
+):
+    """分析用户兴趣（基于历史问题）"""
+    from recommendation import get_recommendation_engine
+    from chat_history import get_history_manager
+
+    engine = get_recommendation_engine()
+    history = get_history_manager()
+
+    sessions = history.get_all_sessions(limit=50, user_id=user["id"])
+
+    questions = []
+    for session in sessions:
+        messages = history.get_session_messages(session["session_id"])
+        for msg in messages:
+            if msg["role"] == "user":
+                questions.append(msg["content"])
+
+    if not questions:
+        return {"message": "暂无足够数据进行分析"}
+
+    result = engine.analyze_interests(user["id"], questions)
+
+    return result
+
+
+@app.post("/api/recommendations/report/daily")
+def generate_daily_report(
+    user: Dict = Depends(get_current_user_required)
+):
+    """生成日报"""
+    from recommendation import get_recommendation_engine
+
+    engine = get_recommendation_engine()
+    report = engine.generate_daily_report(user["id"])
+
+    return report
+
+
+@app.post("/api/recommendations/report/weekly")
+def generate_weekly_report(
+    user: Dict = Depends(get_current_user_required)
+):
+    """生成周报"""
+    from recommendation import get_recommendation_engine
+
+    engine = get_recommendation_engine()
+    report = engine.generate_weekly_report(user["id"])
+
+    return report
+
+
+@app.get("/api/recommendations/reports")
+def get_report_history(
+    limit: int = Query(10, ge=1, le=30),
+    user: Dict = Depends(get_current_user_required)
+):
+    """获取报告历史"""
+    from recommendation import get_recommendation_engine
+
+    engine = get_recommendation_engine()
+    reports = engine.get_report_history(user["id"], limit)
+
+    return {"reports": reports}
+
+
 # ==================== 启动入口 ====================
 
 def main():

@@ -27,6 +27,24 @@ CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", str(BASE_DIR / "chroma_db"))
 DOCUMENTS_PATH = BASE_DIR / "documents"
 DOCUMENTS_PATH.mkdir(exist_ok=True)
 
+# 数据库统一配置
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+DB_PATHS = {
+    "core": DATA_DIR / "core.db",
+    "knowledge": DATA_DIR / "knowledge.db",
+    "ai": DATA_DIR / "ai.db",
+    "community": DATA_DIR / "community.db",
+    "sync": DATA_DIR / "sync.db",
+}
+
+CORE_DB_PATH = DB_PATHS["core"]
+KNOWLEDGE_DB_PATH = DB_PATHS["knowledge"]
+AI_DB_PATH = DB_PATHS["ai"]
+COMMUNITY_DB_PATH = DB_PATHS["community"]
+SYNC_DB_PATH = DB_PATHS["sync"]
+
 # GitHub 配置
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")

@@ -6,16 +6,14 @@ import sqlite3
 import json
 from typing import List, Dict, Optional, Set
 from collections import defaultdict
-from config import BASE_DIR
-
-KNOWLEDGE_GRAPH_DB_PATH = BASE_DIR / "knowledge_graph.db"
+from config import AI_DB_PATH
 
 
 class KnowledgeGraph:
     """知识图谱"""
 
     def __init__(self):
-        self.db_path = KNOWLEDGE_GRAPH_DB_PATH
+        self.db_path = AI_DB_PATH
         self._init_db()
         self._init_default_data()
 

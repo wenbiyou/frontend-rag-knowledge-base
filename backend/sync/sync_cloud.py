@@ -8,9 +8,8 @@ import os
 from datetime import datetime
 from typing import Dict, Optional, List
 from pathlib import Path
-from config import BASE_DIR
+from config import SYNC_DB_PATH, BASE_DIR
 
-SYNC_DB_PATH = BASE_DIR / "sync_config.db"
 EXPORT_DIR = BASE_DIR / "exports"
 
 

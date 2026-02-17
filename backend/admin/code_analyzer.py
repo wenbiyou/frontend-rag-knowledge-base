@@ -11,9 +11,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
-from config import BASE_DIR
-
-CODE_ANALYSIS_DB_PATH = BASE_DIR / "code_analysis.db"
+from config import KNOWLEDGE_DB_PATH
 
 
 @dataclass
@@ -224,7 +222,7 @@ class CodeAnalyzer:
     """代码分析器"""
 
     def __init__(self):
-        self.db_path = CODE_ANALYSIS_DB_PATH
+        self.db_path = KNOWLEDGE_DB_PATH
         self._init_db()
 
     def _init_db(self):

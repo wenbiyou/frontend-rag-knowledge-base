@@ -6,16 +6,14 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import List, Dict, Optional
-from config import BASE_DIR
-
-DOCUMENT_DB_PATH = BASE_DIR / "documents.db"
+from config import KNOWLEDGE_DB_PATH
 
 
 class DocumentManager:
     """文档管理器"""
 
     def __init__(self):
-        self.db_path = DOCUMENT_DB_PATH
+        self.db_path = KNOWLEDGE_DB_PATH
         self._init_db()
 
     def _init_db(self):

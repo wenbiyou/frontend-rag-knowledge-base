@@ -6,9 +6,7 @@ import sqlite3
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from config import BASE_DIR
-
-FEEDBACK_DB_PATH = BASE_DIR / "feedback.db"
+from config import KNOWLEDGE_DB_PATH
 
 
 @dataclass
@@ -27,7 +25,7 @@ class FeedbackManager:
     """反馈管理器"""
 
     def __init__(self):
-        self.db_path = FEEDBACK_DB_PATH
+        self.db_path = KNOWLEDGE_DB_PATH
         self._init_db()
 
     def _init_db(self):

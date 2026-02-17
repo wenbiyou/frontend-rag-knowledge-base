@@ -7,14 +7,12 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
-
-# 数据库文件路径
-DB_PATH = Path(__file__).parent / "github_repos.db"
+from config import SYNC_DB_PATH
 
 
 def get_db_connection():
     """获取数据库连接"""
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(SYNC_DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 

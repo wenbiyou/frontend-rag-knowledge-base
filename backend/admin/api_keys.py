@@ -7,9 +7,7 @@ import secrets
 import hashlib
 from datetime import datetime
 from typing import Optional, Dict, List
-from config import BASE_DIR
-
-API_KEYS_DB_PATH = BASE_DIR / "api_keys.db"
+from config import CORE_DB_PATH
 
 
 def generate_api_key() -> str:
@@ -26,7 +24,7 @@ class APIKeyManager:
     """API Key 管理器"""
 
     def __init__(self):
-        self.db_path = API_KEYS_DB_PATH
+        self.db_path = CORE_DB_PATH
         self._init_db()
 
     def _init_db(self):

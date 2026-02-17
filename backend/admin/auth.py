@@ -9,9 +9,8 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 from functools import wraps
-from config import BASE_DIR
+from config import CORE_DB_PATH
 
-AUTH_DB_PATH = BASE_DIR / "users.db"
 JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24 * 7
@@ -71,7 +70,7 @@ class UserManager:
     """用户管理器"""
 
     def __init__(self):
-        self.db_path = AUTH_DB_PATH
+        self.db_path = CORE_DB_PATH
         self._init_db()
 
     def _init_db(self):

@@ -6,9 +6,7 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import List, Dict, Optional
-from config import BASE_DIR
-
-COMMUNITY_DB_PATH = BASE_DIR / "community.db"
+from config import COMMUNITY_DB_PATH
 
 
 class CommunityManager:

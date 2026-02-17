@@ -7,16 +7,14 @@ import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from collections import Counter
-from config import BASE_DIR
-
-RECOMMENDATION_DB_PATH = BASE_DIR / "recommendation.db"
+from config import AI_DB_PATH
 
 
 class RecommendationEngine:
     """推荐引擎"""
 
     def __init__(self):
-        self.db_path = RECOMMENDATION_DB_PATH
+        self.db_path = AI_DB_PATH
         self._init_db()
 
     def _init_db(self):

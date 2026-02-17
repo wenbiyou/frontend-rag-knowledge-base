@@ -6,16 +6,14 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from config import BASE_DIR
-
-MENTOR_DB_PATH = BASE_DIR / "mentor.db"
+from config import AI_DB_PATH
 
 
 class AIMentor:
     """AI 导师"""
 
     def __init__(self):
-        self.db_path = MENTOR_DB_PATH
+        self.db_path = AI_DB_PATH
         self._init_db()
         self._init_default_content()
 

@@ -6,16 +6,14 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import List, Dict, Optional
-from config import BASE_DIR
-
-CHAT_DB_PATH = BASE_DIR / "chat_history.db"
+from config import CORE_DB_PATH
 
 
 class ChatHistoryManager:
     """对话历史管理器"""
 
     def __init__(self):
-        self.db_path = CHAT_DB_PATH
+        self.db_path = CORE_DB_PATH
         self._init_db()
 
     def _init_db(self):

@@ -7,16 +7,14 @@ import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from collections import Counter
-from config import BASE_DIR
-
-ANALYTICS_DB_PATH = BASE_DIR / "analytics.db"
+from config import CORE_DB_PATH
 
 
 class AnalyticsManager:
     """统计分析管理器"""
 
     def __init__(self):
-        self.db_path = ANALYTICS_DB_PATH
+        self.db_path = CORE_DB_PATH
         self._init_db()
 
     def _init_db(self):

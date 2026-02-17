@@ -25,9 +25,9 @@ from config import (
     GITHUB_TOKEN,
     DOCUMENTS_PATH
 )
-from database import get_vector_store
-from document_processor import get_document_processor
-from deepseek_client import get_embedding_client
+from core.database import get_vector_store
+from core.document_processor import get_document_processor
+from ai.deepseek_client import get_embedding_client
 
 
 class OfficialDocSyncer:

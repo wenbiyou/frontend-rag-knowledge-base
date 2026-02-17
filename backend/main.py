@@ -29,16 +29,16 @@ import threading
 import time
 
 from config import HOST, PORT, GITHUB_WEBHOOK_SECRET, GITHUB_REPOS
-from rag_engine import get_rag_engine, ChatSession
-from sync_service import (
+from core.rag_engine import get_rag_engine, ChatSession
+from sync.sync_service import (
     OfficialDocSyncer,
     GitHubSyncer,
     DocumentImporter,
     run_full_sync
 )
-from database import get_vector_store
-from deepseek_client import get_llm_client
-import github_db
+from core.database import get_vector_store
+from ai.deepseek_client import get_llm_client
+from admin import github_db
 
 app = FastAPI(
     title="前端知识库 API",
@@ -145,7 +145,7 @@ class ChangePasswordRequest(BaseModel):
 
 def get_current_user_optional(request: Request) -> Optional[Dict]:
     """获取当前用户（可选）"""
-    from auth import get_current_user
+    from admin.auth import get_current_user
     try:
         authorization = request.headers.get("Authorization")
         return get_current_user(authorization)
@@ -155,7 +155,7 @@ def get_current_user_optional(request: Request) -> Optional[Dict]:
 
 def get_current_user_required(request: Request) -> Dict:
     """获取当前用户（必须登录）"""
-    from auth import get_current_user
+    from admin.auth import get_current_user
     authorization = request.headers.get("Authorization")
     user = get_current_user(authorization)
     if not user:
@@ -180,7 +180,7 @@ def health_check():
 @app.post("/api/auth/register", response_model=UserResponse)
 def register(request: RegisterRequest):
     """用户注册"""
-    from auth import get_user_manager
+    from admin.auth import get_user_manager
 
     if len(request.username) < 3:
         raise HTTPException(status_code=400, detail="用户名至少 3 个字符")
@@ -203,7 +203,7 @@ def register(request: RegisterRequest):
 @app.post("/api/auth/login", response_model=LoginResponse)
 def login(request: LoginRequest):
     """用户登录"""
-    from auth import get_user_manager, create_token
+    from admin.auth import get_user_manager, create_token
 
     manager = get_user_manager()
     user = manager.authenticate(request.username, request.password)
@@ -231,7 +231,7 @@ def change_password(
     user: Dict = Depends(get_current_user_required)
 ):
     """修改密码"""
-    from auth import get_user_manager
+    from admin.auth import get_user_manager
 
     manager = get_user_manager()
     result = manager.change_password(
@@ -249,7 +249,7 @@ def change_password(
 @app.get("/api/auth/users")
 def list_users(user: Dict = Depends(get_current_user_required)):
     """获取用户列表（仅管理员）"""
-    from auth import get_user_manager
+    from admin.auth import get_user_manager
 
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="无权限")
@@ -264,7 +264,7 @@ def delete_user(
     user: Dict = Depends(get_current_user_required)
 ):
     """删除用户（仅管理员）"""
-    from auth import get_user_manager
+    from admin.auth import get_user_manager
 
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="无权限")
@@ -293,7 +293,7 @@ def get_stats():
 def get_sources():
     """获取所有文档来源及其统计"""
     vector_store = get_vector_store()
-    all_data = vector_store.collection.get()
+    all_data = vector_store.collection.get(include=["metadatas"])
 
     # 统计各来源的文档数
     source_stats = {}
@@ -332,7 +332,7 @@ def chat(request: ChatRequest):
     }
     """
     import time
-    from analytics import get_analytics_manager
+    from admin.analytics import get_analytics_manager
 
     start_time = time.time()
 
@@ -373,8 +373,8 @@ def chat_stream(request: ChatRequest):
     返回 SSE (Server-Sent Events) 格式的流数据
     """
     import time
-    from analytics import get_analytics_manager
-    from chat_history import get_history_manager
+    from admin.analytics import get_analytics_manager
+    from admin.chat_history import get_history_manager
 
     start_time = time.time()
     sources_found = []
@@ -707,7 +707,7 @@ def clear_session(
     user: Optional[Dict] = Depends(get_current_user_optional)
 ):
     """清空指定会话的历史"""
-    from chat_history import get_history_manager
+    from admin.chat_history import get_history_manager
 
     if session_id in sessions:
         session = sessions[session_id]
@@ -743,7 +743,7 @@ def get_sessions(
     user: Optional[Dict] = Depends(get_current_user_optional)
 ):
     """获取会话列表（按最近更新时间排序，支持用户隔离）"""
-    from chat_history import get_history_manager
+    from admin.chat_history import get_history_manager
 
     history_manager = get_history_manager()
     user_id = user["id"] if user else None
@@ -761,7 +761,7 @@ def get_session_messages(
     user: Optional[Dict] = Depends(get_current_user_optional)
 ):
     """获取指定会话的所有消息"""
-    from chat_history import get_history_manager
+    from admin.chat_history import get_history_manager
 
     history_manager = get_history_manager()
     messages = history_manager.get_session_messages(session_id)
@@ -779,7 +779,7 @@ def rename_session(
     user: Optional[Dict] = Depends(get_current_user_optional)
 ):
     """重命名会话"""
-    from chat_history import get_history_manager
+    from admin.chat_history import get_history_manager
 
     history_manager = get_history_manager()
     user_id = user["id"] if user else None
@@ -794,7 +794,7 @@ def rename_session(
 @app.get("/api/chat-stats")
 def get_chat_stats(user: Optional[Dict] = Depends(get_current_user_optional)):
     """获取对话统计信息"""
-    from chat_history import get_history_manager
+    from admin.chat_history import get_history_manager
 
     history_manager = get_history_manager()
     user_id = user["id"] if user else None
@@ -1143,7 +1143,7 @@ class ImportDataRequest(BaseModel):
 @app.get("/api/sync/config")
 def get_sync_config(user: Dict = Depends(get_current_user_required)):
     """获取同步配置"""
-    from sync_cloud import get_sync_manager
+    from sync.sync_cloud import get_sync_manager
 
     manager = get_sync_manager()
     config = manager.get_config(user["id"])
@@ -1157,7 +1157,7 @@ def set_sync_config(
     user: Dict = Depends(get_current_user_required)
 ):
     """设置同步配置"""
-    from sync_cloud import get_sync_manager
+    from sync.sync_cloud import get_sync_manager
 
     manager = get_sync_manager()
     result = manager.set_config(
@@ -1174,7 +1174,7 @@ def set_sync_config(
 @app.post("/api/sync/export")
 def export_user_data(user: Dict = Depends(get_current_user_required)):
     """导出用户数据"""
-    from sync_cloud import get_sync_manager
+    from sync.sync_cloud import get_sync_manager
 
     manager = get_sync_manager()
     result = manager.export_data(user["id"])
@@ -1188,7 +1188,7 @@ def import_user_data(
     user: Dict = Depends(get_current_user_required)
 ):
     """导入用户数据"""
-    from sync_cloud import get_sync_manager
+    from sync.sync_cloud import get_sync_manager
 
     manager = get_sync_manager()
     result = manager.import_data(user["id"], request.data)
@@ -1205,7 +1205,7 @@ def get_sync_history(
     user: Dict = Depends(get_current_user_required)
 ):
     """获取同步历史"""
-    from sync_cloud import get_sync_manager
+    from sync.sync_cloud import get_sync_manager
 
     manager = get_sync_manager()
     history = manager.get_sync_history(user["id"], limit=limit)
@@ -1216,7 +1216,7 @@ def get_sync_history(
 @app.get("/api/sync/exports")
 def list_export_files(user: Dict = Depends(get_current_user_required)):
     """列出导出文件"""
-    from sync_cloud import get_sync_manager
+    from sync.sync_cloud import get_sync_manager
 
     manager = get_sync_manager()
     exports = manager.list_exports(user_id=user["id"])
@@ -1227,7 +1227,7 @@ def list_export_files(user: Dict = Depends(get_current_user_required)):
 @app.get("/api/sync/download/{filename}")
 def download_export_file(filename: str):
     """下载导出文件"""
-    from sync_cloud import get_sync_manager
+    from sync.sync_cloud import get_sync_manager
     from fastapi.responses import FileResponse
 
     manager = get_sync_manager()
@@ -1280,7 +1280,7 @@ def list_documents(
     - status: 状态筛选 (active/deleted)
     - search: 搜索关键词
     """
-    from document_manager import get_document_manager
+    from admin.document_manager import get_document_manager
 
     manager = get_document_manager()
     result = manager.list_documents(
@@ -1297,7 +1297,7 @@ def list_documents(
 @app.get("/api/documents/stats", response_model=DocumentStatsResponse)
 def get_document_stats():
     """获取文档统计信息"""
-    from document_manager import get_document_manager
+    from admin.document_manager import get_document_manager
 
     manager = get_document_manager()
     stats = manager.get_stats()
@@ -1308,7 +1308,7 @@ def get_document_stats():
 @app.get("/api/documents/{source:path}/content")
 def get_document_content(source: str):
     """获取文档内容（从向量数据库）"""
-    from database import get_vector_store
+    from core.database import get_vector_store
 
     vector_store = get_vector_store()
     results = vector_store.collection.get(
@@ -1333,7 +1333,7 @@ def get_document_content(source: str):
 @app.get("/api/documents/{source:path}")
 def get_document_detail(source: str):
     """获取单个文档详情"""
-    from document_manager import get_document_manager
+    from admin.document_manager import get_document_manager
 
     manager = get_document_manager()
     doc = manager.get_document(source)
@@ -1351,8 +1351,8 @@ def delete_document(source: str):
 
     同时从向量数据库和文档管理数据库中删除
     """
-    from document_manager import get_document_manager
-    from database import get_vector_store
+    from admin.document_manager import get_document_manager
+    from core.database import get_vector_store
 
     manager = get_document_manager()
     vector_store = get_vector_store()
@@ -1373,8 +1373,8 @@ def delete_document(source: str):
 @app.post("/api/documents/sync")
 def sync_documents_from_vector_store():
     """从向量数据库同步文档信息到管理数据库"""
-    from document_manager import get_document_manager
-    from database import get_vector_store
+    from admin.document_manager import get_document_manager
+    from core.database import get_vector_store
 
     manager = get_document_manager()
     vector_store = get_vector_store()
@@ -1403,7 +1403,7 @@ class AnalyticsOverviewResponse(BaseModel):
 @app.get("/api/analytics/overview", response_model=AnalyticsOverviewResponse)
 def get_analytics_overview():
     """获取统计总览"""
-    from analytics import get_analytics_manager
+    from admin.analytics import get_analytics_manager
 
     manager = get_analytics_manager()
     stats = manager.get_overview()
@@ -1414,7 +1414,7 @@ def get_analytics_overview():
 @app.get("/api/analytics/daily")
 def get_analytics_daily(days: int = Query(30, ge=1, le=365)):
     """获取每日统计趋势"""
-    from analytics import get_analytics_manager
+    from admin.analytics import get_analytics_manager
 
     manager = get_analytics_manager()
     stats = manager.get_daily_stats(days=days)
@@ -1425,7 +1425,7 @@ def get_analytics_daily(days: int = Query(30, ge=1, le=365)):
 @app.get("/api/analytics/popular")
 def get_analytics_popular(limit: int = Query(20, ge=1, le=100)):
     """获取热门问题排行"""
-    from analytics import get_analytics_manager
+    from admin.analytics import get_analytics_manager
 
     manager = get_analytics_manager()
     questions = manager.get_popular_questions(limit=limit)
@@ -1436,7 +1436,7 @@ def get_analytics_popular(limit: int = Query(20, ge=1, le=100)):
 @app.get("/api/analytics/sources")
 def get_analytics_sources():
     """获取来源使用统计"""
-    from analytics import get_analytics_manager
+    from admin.analytics import get_analytics_manager
 
     manager = get_analytics_manager()
     sources = manager.get_source_usage()
@@ -1447,7 +1447,7 @@ def get_analytics_sources():
 @app.get("/api/analytics/hourly")
 def get_analytics_hourly():
     """获取小时分布统计"""
-    from analytics import get_analytics_manager
+    from admin.analytics import get_analytics_manager
 
     manager = get_analytics_manager()
     distribution = manager.get_hourly_distribution()
@@ -1479,7 +1479,7 @@ class APIKeyResponse(BaseModel):
 @app.get("/api/keys")
 def list_api_keys(user: Dict = Depends(get_current_user_required)):
     """获取用户的 API Keys 列表"""
-    from api_keys import get_api_key_manager
+    from admin.api_keys import get_api_key_manager
 
     manager = get_api_key_manager()
     keys = manager.list_keys(user["id"])
@@ -1493,7 +1493,7 @@ def create_api_key(
     user: Dict = Depends(get_current_user_required)
 ):
     """创建新的 API Key"""
-    from api_keys import get_api_key_manager
+    from admin.api_keys import get_api_key_manager
 
     manager = get_api_key_manager()
     result = manager.create_key(
@@ -1521,7 +1521,7 @@ def revoke_api_key(
     user: Dict = Depends(get_current_user_required)
 ):
     """撤销/删除 API Key"""
-    from api_keys import get_api_key_manager
+    from admin.api_keys import get_api_key_manager
 
     manager = get_api_key_manager()
     success = manager.delete_key(key_id, user["id"])
@@ -1535,7 +1535,7 @@ def revoke_api_key(
 @app.get("/api/keys/stats")
 def get_api_key_stats(user: Dict = Depends(get_current_user_required)):
     """获取 API Key 统计"""
-    from api_keys import get_api_key_manager
+    from admin.api_keys import get_api_key_manager
 
     manager = get_api_key_manager()
     stats = manager.get_key_stats(user["id"])
@@ -1547,8 +1547,8 @@ def get_api_key_stats(user: Dict = Depends(get_current_user_required)):
 
 def get_user_from_api_key(request: Request) -> Optional[Dict]:
     """从 API Key 或 Token 获取用户"""
-    from api_keys import authenticate_with_api_key
-    from auth import get_current_user
+    from admin.api_keys import authenticate_with_api_key
+    from admin.auth import get_current_user
 
     api_key = request.headers.get("X-API-Key")
     if api_key:
@@ -1572,7 +1572,7 @@ def api_v1_chat(
         raise HTTPException(status_code=401, detail="需要有效的 API Key 或 Token")
 
     import time
-    from analytics import get_analytics_manager
+    from admin.analytics import get_analytics_manager
 
     start_time = time.time()
 
@@ -1621,7 +1621,7 @@ def api_v1_documents(http_request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="需要有效的 API Key 或 Token")
 
-    from document_manager import get_document_manager
+    from admin.document_manager import get_document_manager
 
     manager = get_document_manager()
     stats = manager.get_stats()
@@ -1660,7 +1660,7 @@ class RAGOptimizeResponse(BaseModel):
 @app.post("/api/rag/optimize", response_model=RAGOptimizeResponse)
 def optimize_rag_query(request: RAGOptimizeRequest):
     """优化查询（意图识别、关键词提取）"""
-    from rag_optimizer import get_rag_optimizer
+    from core.rag_optimizer import get_rag_optimizer
 
     optimizer = get_rag_optimizer()
     result = optimizer.optimize_query(request.query)
@@ -1675,7 +1675,7 @@ def enhanced_search(
     top_k: int = Query(5, ge=1, le=20, description="返回文档数量")
 ):
     """增强搜索（多路召回 + 重排序）"""
-    from rag_optimizer import get_rag_optimizer
+    from core.rag_optimizer import get_rag_optimizer
 
     optimizer = get_rag_optimizer()
 
@@ -1768,7 +1768,7 @@ class CodeSearchRequest(BaseModel):
 @app.post("/api/code/analyze")
 def analyze_code_file(request: CodeUploadRequest):
     """分析代码文件"""
-    from code_analyzer import get_code_analyzer
+    from admin.code_analyzer import get_code_analyzer
 
     analyzer = get_code_analyzer()
     result = analyzer.analyze_file(request.filename, request.content)
@@ -1794,7 +1794,7 @@ def list_code_files(
     limit: int = Query(50, ge=1, le=100)
 ):
     """列出代码文件"""
-    from code_analyzer import get_code_analyzer
+    from admin.code_analyzer import get_code_analyzer
 
     analyzer = get_code_analyzer()
     files = analyzer.list_files(language=language, limit=limit)
@@ -1805,7 +1805,7 @@ def list_code_files(
 @app.get("/api/code/files/{file_id}")
 def get_code_file(file_id: str):
     """获取代码文件详情"""
-    from code_analyzer import get_code_analyzer
+    from admin.code_analyzer import get_code_analyzer
 
     analyzer = get_code_analyzer()
     file = analyzer.get_file(file_id)
@@ -1819,7 +1819,7 @@ def get_code_file(file_id: str):
 @app.delete("/api/code/files/{file_id}")
 def delete_code_file(file_id: str):
     """删除代码文件"""
-    from code_analyzer import get_code_analyzer
+    from admin.code_analyzer import get_code_analyzer
 
     analyzer = get_code_analyzer()
     success = analyzer.delete_file(file_id)
@@ -1833,7 +1833,7 @@ def delete_code_file(file_id: str):
 @app.post("/api/code/search")
 def search_code_snippets(request: CodeSearchRequest):
     """搜索代码片段"""
-    from code_analyzer import get_code_analyzer
+    from admin.code_analyzer import get_code_analyzer
 
     analyzer = get_code_analyzer()
     results = analyzer.search_snippets(request.query, request.limit)
@@ -1844,7 +1844,7 @@ def search_code_snippets(request: CodeSearchRequest):
 @app.get("/api/code/stats")
 def get_code_stats():
     """获取代码统计"""
-    from code_analyzer import get_code_analyzer
+    from admin.code_analyzer import get_code_analyzer
 
     analyzer = get_code_analyzer()
     return analyzer.get_stats()
@@ -1853,7 +1853,7 @@ def get_code_stats():
 @app.post("/api/code/batch-analyze")
 def batch_analyze_code(files: List[CodeUploadRequest]):
     """批量分析代码文件"""
-    from code_analyzer import get_code_analyzer
+    from admin.code_analyzer import get_code_analyzer
 
     analyzer = get_code_analyzer()
     results = []
@@ -1902,7 +1902,7 @@ def submit_feedback(
     user: Optional[Dict] = Depends(get_current_user_optional)
 ):
     """提交反馈（点赞/踩/错误标记）"""
-    from feedback import get_feedback_manager
+    from admin.feedback import get_feedback_manager
 
     manager = get_feedback_manager()
     user_id = user["id"] if user else None
@@ -1921,7 +1921,7 @@ def submit_feedback(
 @app.get("/api/feedback/message/{message_id}")
 def get_message_feedback(message_id: str):
     """获取消息的反馈统计"""
-    from feedback import get_feedback_manager
+    from admin.feedback import get_feedback_manager
 
     manager = get_feedback_manager()
     return manager.get_message_feedback(message_id)
@@ -1933,7 +1933,7 @@ def get_user_feedback_status(
     user: Dict = Depends(get_current_user_required)
 ):
     """获取用户对消息的反馈状态"""
-    from feedback import get_feedback_manager
+    from admin.feedback import get_feedback_manager
 
     manager = get_feedback_manager()
     feedback_type = manager.get_user_feedback(message_id, user["id"])
@@ -1944,7 +1944,7 @@ def get_user_feedback_status(
 @app.get("/api/feedback/stats", response_model=FeedbackStatsResponse)
 def get_feedback_stats(days: int = Query(7, ge=1, le=30)):
     """获取反馈统计"""
-    from feedback import get_feedback_manager
+    from admin.feedback import get_feedback_manager
 
     manager = get_feedback_manager()
     return manager.get_feedback_stats(days=days)
@@ -1953,7 +1953,7 @@ def get_feedback_stats(days: int = Query(7, ge=1, le=30)):
 @app.get("/api/feedback/recent")
 def get_recent_feedback(limit: int = Query(50, ge=1, le=100)):
     """获取最近的反馈"""
-    from feedback import get_feedback_manager
+    from admin.feedback import get_feedback_manager
 
     manager = get_feedback_manager()
     feedbacks = manager.get_recent_feedback(limit=limit)
@@ -1964,7 +1964,7 @@ def get_recent_feedback(limit: int = Query(50, ge=1, le=100)):
 @app.get("/api/feedback/problems")
 def get_problematic_messages(limit: int = Query(20, ge=1, le=50)):
     """获取问题消息列表"""
-    from feedback import get_feedback_manager
+    from admin.feedback import get_feedback_manager
 
     manager = get_feedback_manager()
     problems = manager.get_problematic_messages(limit=limit)
@@ -1990,7 +1990,7 @@ class UpdateExpertRequest(BaseModel):
 @app.get("/api/experts")
 def list_experts():
     """获取专家列表"""
-    from auth import get_user_manager
+    from admin.auth import get_user_manager
 
     manager = get_user_manager()
     experts = manager.list_experts()
@@ -2004,7 +2004,7 @@ def set_expert(
     user: Dict = Depends(get_current_user_required)
 ):
     """设置用户为专家（需要管理员权限）"""
-    from auth import get_user_manager
+    from admin.auth import get_user_manager
 
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
@@ -2028,7 +2028,7 @@ def remove_expert(
     user: Dict = Depends(get_current_user_required)
 ):
     """移除专家身份（需要管理员权限）"""
-    from auth import get_user_manager
+    from admin.auth import get_user_manager
 
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
@@ -2048,7 +2048,7 @@ def update_expert_profile(
     user: Dict = Depends(get_current_user_required)
 ):
     """更新专家资料"""
-    from auth import get_user_manager
+    from admin.auth import get_user_manager
 
     if user["role"] != "expert":
         raise HTTPException(status_code=403, detail="仅专家可更新资料")
@@ -2066,7 +2066,7 @@ def update_expert_profile(
 @app.get("/api/experts/stats")
 def get_expert_stats():
     """获取专家统计"""
-    from auth import get_user_manager
+    from admin.auth import get_user_manager
 
     manager = get_user_manager()
     experts = manager.list_experts()
@@ -2090,7 +2090,7 @@ def get_recommendations(
     user: Optional[Dict] = Depends(get_current_user_optional)
 ):
     """获取个性化推荐"""
-    from recommendation import get_recommendation_engine
+    from ai.recommendation import get_recommendation_engine
 
     engine = get_recommendation_engine()
     user_id = user["id"] if user else None
@@ -2106,7 +2106,7 @@ def get_user_interests(
     user: Dict = Depends(get_current_user_required)
 ):
     """获取用户兴趣列表"""
-    from recommendation import get_recommendation_engine
+    from ai.recommendation import get_recommendation_engine
 
     engine = get_recommendation_engine()
     interests = engine.get_user_interests(user["id"], limit)
@@ -2119,8 +2119,8 @@ def analyze_user_interests(
     user: Dict = Depends(get_current_user_required)
 ):
     """分析用户兴趣（基于历史问题）"""
-    from recommendation import get_recommendation_engine
-    from chat_history import get_history_manager
+    from ai.recommendation import get_recommendation_engine
+    from admin.chat_history import get_history_manager
 
     engine = get_recommendation_engine()
     history = get_history_manager()
@@ -2147,7 +2147,7 @@ def generate_daily_report(
     user: Dict = Depends(get_current_user_required)
 ):
     """生成日报"""
-    from recommendation import get_recommendation_engine
+    from ai.recommendation import get_recommendation_engine
 
     engine = get_recommendation_engine()
     report = engine.generate_daily_report(user["id"])
@@ -2160,7 +2160,7 @@ def generate_weekly_report(
     user: Dict = Depends(get_current_user_required)
 ):
     """生成周报"""
-    from recommendation import get_recommendation_engine
+    from ai.recommendation import get_recommendation_engine
 
     engine = get_recommendation_engine()
     report = engine.generate_weekly_report(user["id"])
@@ -2174,7 +2174,7 @@ def get_report_history(
     user: Dict = Depends(get_current_user_required)
 ):
     """获取报告历史"""
-    from recommendation import get_recommendation_engine
+    from ai.recommendation import get_recommendation_engine
 
     engine = get_recommendation_engine()
     reports = engine.get_report_history(user["id"], limit)
@@ -2187,7 +2187,7 @@ def get_report_history(
 @app.get("/api/graph/nodes")
 def get_knowledge_nodes(category: Optional[str] = None):
     """获取知识节点列表"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
 
@@ -2202,7 +2202,7 @@ def get_knowledge_nodes(category: Optional[str] = None):
 @app.get("/api/graph/nodes/{node_id}")
 def get_knowledge_node_detail(node_id: int):
     """获取知识节点详情"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
     node = graph.get_node_detail(node_id)
@@ -2216,7 +2216,7 @@ def get_knowledge_node_detail(node_id: int):
 @app.get("/api/graph/data")
 def get_graph_visualization_data():
     """获取图谱可视化数据"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
     return graph.get_graph_data()
@@ -2225,7 +2225,7 @@ def get_graph_visualization_data():
 @app.get("/api/graph/categories")
 def get_knowledge_categories():
     """获取知识类别列表"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
     categories = graph.get_categories()
@@ -2236,7 +2236,7 @@ def get_knowledge_categories():
 @app.get("/api/graph/relations")
 def get_knowledge_relations():
     """获取知识关系列表"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
     relations = graph.get_all_relations()
@@ -2247,7 +2247,7 @@ def get_knowledge_relations():
 @app.get("/api/graph/paths")
 def get_learning_paths(difficulty: Optional[int] = None):
     """获取学习路径"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
     paths = graph.get_learning_paths(difficulty)
@@ -2263,7 +2263,7 @@ class PathRecommendRequest(BaseModel):
 @app.post("/api/graph/recommend")
 def recommend_learning_path(request: PathRecommendRequest):
     """推荐学习路径"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
     recommendation = graph.recommend_path(request.known_nodes)
@@ -2274,7 +2274,7 @@ def recommend_learning_path(request: PathRecommendRequest):
 @app.get("/api/graph/search")
 def search_knowledge_nodes(query: str = Query(..., min_length=1)):
     """搜索知识节点"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
     results = graph.search_nodes(query)
@@ -2302,7 +2302,7 @@ class AddRelationRequest(BaseModel):
 @app.post("/api/graph/nodes")
 def add_knowledge_node(request: AddNodeRequest):
     """添加知识节点"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
     result = graph.add_node(
@@ -2319,7 +2319,7 @@ def add_knowledge_node(request: AddNodeRequest):
 @app.post("/api/graph/relations")
 def add_knowledge_relation(request: AddRelationRequest):
     """添加知识关系"""
-    from knowledge_graph import get_knowledge_graph
+    from ai.knowledge_graph import get_knowledge_graph
 
     graph = get_knowledge_graph()
     success = graph.add_relation(
@@ -2368,7 +2368,7 @@ class GrowthRecordRequest(BaseModel):
 @app.get("/api/mentor/assessment/{skill}")
 def get_assessment_questions(skill: str):
     """获取技能评估问题"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     questions = mentor.get_assessment_questions(skill)
@@ -2385,7 +2385,7 @@ def submit_skill_assessment(
     user: Dict = Depends(get_current_user_required)
 ):
     """提交技能评估"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     result = mentor.submit_assessment(user["id"], request.skill, request.answers)
@@ -2399,7 +2399,7 @@ def submit_skill_assessment(
 @app.get("/api/mentor/skills")
 def get_user_skills(user: Dict = Depends(get_current_user_required)):
     """获取用户技能评估"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     skills = mentor.get_user_skills(user["id"])
@@ -2413,7 +2413,7 @@ def create_learning_plan(
     user: Dict = Depends(get_current_user_required)
 ):
     """创建学习计划"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     plan = mentor.create_learning_plan(
@@ -2430,7 +2430,7 @@ def create_learning_plan(
 @app.get("/api/mentor/plans")
 def get_user_learning_plans(user: Dict = Depends(get_current_user_required)):
     """获取用户学习计划"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     plans = mentor.get_user_plans(user["id"])
@@ -2444,7 +2444,7 @@ def update_learning_progress(
     user: Dict = Depends(get_current_user_required)
 ):
     """更新学习进度"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     success = mentor.update_plan_progress(
@@ -2468,7 +2468,7 @@ def get_article_recommendations(
     user: Optional[Dict] = Depends(get_current_user_optional)
 ):
     """获取文章推荐"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     user_id = user["id"] if user else None
@@ -2486,7 +2486,7 @@ def get_article_recommendations(
 @app.post("/api/mentor/articles/{article_id}/read")
 def mark_article_as_read(article_id: int):
     """标记文章已读"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     success = mentor.mark_article_read(article_id)
@@ -2503,7 +2503,7 @@ def add_growth_record(
     user: Dict = Depends(get_current_user_required)
 ):
     """添加成长记录"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     record = mentor.add_growth_record(
@@ -2522,7 +2522,7 @@ def get_growth_records(
     user: Dict = Depends(get_current_user_required)
 ):
     """获取成长记录"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     records = mentor.get_growth_records(
@@ -2537,7 +2537,7 @@ def get_growth_records(
 @app.get("/api/mentor/summary")
 def get_growth_summary(user: Dict = Depends(get_current_user_required)):
     """获取成长总结"""
-    from ai_mentor import get_ai_mentor
+    from ai.ai_mentor import get_ai_mentor
 
     mentor = get_ai_mentor()
     summary = mentor.get_growth_summary(user["id"])
@@ -2586,7 +2586,7 @@ def share_prompt(
     user: Dict = Depends(get_current_user_required)
 ):
     """分享提示词"""
-    from community import get_community_manager
+    from community.community import get_community_manager
 
     manager = get_community_manager()
     result = manager.share_prompt(
@@ -2610,7 +2610,7 @@ def get_prompts(
     offset: int = Query(0, ge=0)
 ):
     """获取提示词列表"""
-    from community import get_community_manager
+    from community.community import get_community_manager
 
     manager = get_community_manager()
     prompts = manager.get_prompts(
@@ -2627,7 +2627,7 @@ def get_prompts(
 @app.get("/api/community/prompts/{prompt_id}")
 def get_prompt_detail(prompt_id: int):
     """获取提示词详情"""
-    from community import get_community_manager
+    from community.community import get_community_manager
 
     manager = get_community_manager()
     prompt = manager.get_prompt(prompt_id)
@@ -2644,7 +2644,7 @@ def share_knowledge_config(
     user: Dict = Depends(get_current_user_required)
 ):
     """分享知识库配置"""
-    from community import get_community_manager
+    from community.community import get_community_manager
 
     manager = get_community_manager()
     result = manager.share_config(
@@ -2664,7 +2664,7 @@ def get_knowledge_configs(
     limit: int = Query(20, ge=1, le=100)
 ):
     """获取知识库配置列表"""
-    from community import get_community_manager
+    from community.community import get_community_manager
 
     manager = get_community_manager()
     configs = manager.get_configs(category=category, limit=limit)
@@ -2675,7 +2675,7 @@ def get_knowledge_configs(
 @app.get("/api/community/configs/{config_id}")
 def get_config_detail(config_id: int):
     """获取知识库配置详情"""
-    from community import get_community_manager
+    from community.community import get_community_manager
 
     manager = get_community_manager()
     config = manager.get_config(config_id)
@@ -2692,7 +2692,7 @@ def share_best_practice(
     user: Dict = Depends(get_current_user_required)
 ):
     """分享最佳实践"""
-    from community import get_community_manager
+    from community.community import get_community_manager
 
     manager = get_community_manager()
     result = manager.share_practice(
@@ -2762,7 +2762,7 @@ def like_community_item(
 @app.get("/api/community/categories")
 def get_community_categories():
     """获取社区内容类别"""
-    from community import get_community_manager
+    from community.community import get_community_manager
 
     manager = get_community_manager()
     return manager.get_categories()

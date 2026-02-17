@@ -12,8 +12,8 @@ RAG = Retrieval Augmented Generation（检索增强生成）
 类比：像开卷考试，先查资料，再基于资料组织答案
 """
 from typing import List, Dict, Tuple
-from database import get_vector_store
-from deepseek_client import get_llm_client, get_embedding_client
+from core.database import get_vector_store
+from ai.deepseek_client import get_llm_client, get_embedding_client
 from config import TOP_K, SIMILARITY_THRESHOLD
 
 
@@ -222,7 +222,7 @@ class ChatSession:
     """
 
     def __init__(self, session_id: str = None):
-        from chat_history import get_history_manager
+        from admin.chat_history import get_history_manager
 
         self.session_id = session_id or self._generate_session_id()
         self.rag_engine = RAGEngine()

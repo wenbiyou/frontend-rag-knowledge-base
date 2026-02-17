@@ -701,7 +701,7 @@ const DocumentPreview = memo(function DocumentPreview({
     const loadContent = async () => {
       setLoading(true);
       try {
-        const docSource = source.url || source.title;
+        const docSource = source.source || source.url || source.title;
         const response = await fetch(
           `/api/documents/${encodeURIComponent(docSource)}/content`
         );

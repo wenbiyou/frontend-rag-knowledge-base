@@ -26,6 +26,7 @@ interface UseChatReturn {
   clearChat: () => void;
   loadSession: (sid: string) => Promise<void>;
   startNewChat: () => void;
+  hasMessages: boolean;
 }
 
 export function useChat(options: UseChatOptions = {}): UseChatReturn {
@@ -74,7 +75,9 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
             session_id: sessionId || undefined,
             source_filter: sourceFilter,
           })) {
-            if (chunk.type === 'sources') {
+            if (chunk.type === 'session_id') {
+              setSessionId(chunk.data);
+            } else if (chunk.type === 'sources') {
               currentSources.current = chunk.data;
             } else if (chunk.type === 'content') {
               currentStreamContent.current += chunk.data;
@@ -198,5 +201,6 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     clearChat,
     loadSession,
     startNewChat,
+    hasMessages: messages.length > 0,
   };
 }

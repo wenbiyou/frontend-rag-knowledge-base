@@ -59,8 +59,13 @@ export async function sendChatMessage(
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || '请求失败');
+    const text = await response.text();
+    try {
+      const error = JSON.parse(text);
+      throw new Error(error.detail || '请求失败');
+    } catch {
+      throw new Error(text || `请求失败 (${response.status})`);
+    }
   }
 
   return response.json();
@@ -80,8 +85,13 @@ export async function* sendStreamChatMessage(
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || '请求失败');
+    const text = await response.text();
+    try {
+      const error = JSON.parse(text);
+      throw new Error(error.detail || '请求失败');
+    } catch {
+      throw new Error(text || `请求失败 (${response.status})`);
+    }
   }
 
   const reader = response.body?.getReader();
@@ -178,6 +188,25 @@ export async function syncDocuments(source: 'official' | 'github' | 'all' = 'all
     throw new Error(error.detail || '同步失败');
   }
 
+  return response.json();
+}
+
+export interface SyncStatus {
+  is_running: boolean;
+  current_source: string | null;
+  progress: number;
+  total: number;
+  started_at: string | null;
+  completed_at: string | null;
+  result: any;
+  error: string | null;
+}
+
+export async function getSyncStatus(): Promise<SyncStatus> {
+  const response = await fetch(`${API_BASE}/sync/status`);
+  if (!response.ok) {
+    throw new Error('获取同步状态失败');
+  }
   return response.json();
 }
 

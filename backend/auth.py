@@ -15,11 +15,12 @@ AUTH_DB_PATH = BASE_DIR / "users.db"
 JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24 * 7
+PASSWORD_SALT = "frontend-rag-kb-fixed-salt-2024"
 
 
 def hash_password(password: str) -> str:
     """密码加密"""
-    return hashlib.sha256(password.encode() + JWT_SECRET.encode()).hexdigest()
+    return hashlib.sha256(password.encode() + PASSWORD_SALT.encode()).hexdigest()
 
 
 def verify_password(password: str, hashed: str) -> bool:
@@ -118,13 +119,13 @@ class UserManager:
                 pass
 
             admin_exists = cursor.execute(
-                "SELECT COUNT(*) FROM users WHERE role = 'admin'"
+                "SELECT COUNT(*) FROM users WHERE username = 'admin'"
             ).fetchone()[0]
 
             if admin_exists == 0:
                 cursor.execute(
                     """
-                    INSERT INTO users (username, email, password_hash, role)
+                    INSERT OR IGNORE INTO users (username, email, password_hash, role)
                     VALUES (?, ?, ?, ?)
                     """,
                     ("admin", "admin@localhost", hash_password("admin123"), "admin")

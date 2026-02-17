@@ -25,6 +25,8 @@ import json
 import hmac
 import hashlib
 from datetime import datetime
+import threading
+import time
 
 from config import HOST, PORT, GITHUB_WEBHOOK_SECRET, GITHUB_REPOS
 from rag_engine import get_rag_engine, ChatSession
@@ -53,6 +55,18 @@ app.add_middleware(
 )
 
 sessions: dict = {}
+
+sync_status = {
+    "is_running": False,
+    "current_source": None,
+    "progress": 0,
+    "total": 0,
+    "started_at": None,
+    "completed_at": None,
+    "result": None,
+    "error": None
+}
+sync_lock = threading.Lock()
 
 # ==================== 数据模型 ====================
 
@@ -360,27 +374,56 @@ def chat_stream(request: ChatRequest):
     """
     import time
     from analytics import get_analytics_manager
+    from chat_history import get_history_manager
 
     start_time = time.time()
     sources_found = []
 
+    # 使用 ChatSession 管理会话
+    if request.session_id and request.session_id in sessions:
+        session = sessions[request.session_id]
+    else:
+        session = ChatSession()
+        sessions[session.session_id] = session
+
+    session_id = session.session_id
+
     def generate():
         nonlocal sources_found
         try:
+            # 首先返回 session_id
+            yield f"data: {json.dumps({'type': 'session_id', 'data': session_id}, ensure_ascii=False)}\n\n"
+
             rag_engine = get_rag_engine()
+            history_manager = get_history_manager()
+
+            # 保存用户消息到数据库
+            history_manager.save_message(
+                session_id=session_id,
+                role="user",
+                content=request.message
+            )
 
             docs, metas = rag_engine._retrieve(request.message, request.source_filter)
-            print('docs', docs)
 
             if not docs:
-                yield f"data: {json.dumps({'type': 'content', 'data': '根据现有知识库，我暂时没有找到与您问题相关的信息。'}, ensure_ascii=False)}\n\n"
+                no_answer_msg = '根据现有知识库，我暂时没有找到与您问题相关的信息。'
+                yield f"data: {json.dumps({'type': 'content', 'data': no_answer_msg}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+                # 保存助手消息
+                history_manager.save_message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=no_answer_msg,
+                    sources=[]
+                )
 
                 analytics = get_analytics_manager()
                 response_time_ms = int((time.time() - start_time) * 1000)
                 analytics.log_question(
                     question=request.message,
-                    session_id=request.session_id,
+                    session_id=session_id,
                     source_filter=request.source_filter,
                     has_answer=False,
                     response_time_ms=response_time_ms
@@ -403,8 +446,19 @@ def chat_stream(request: ChatRequest):
             sources_found = sources
             yield f"data: {json.dumps({'type': 'sources', 'data': sources}, ensure_ascii=False)}\n\n"
 
+            # 收集完整响应用于保存
+            full_content = ""
             for chunk in rag_engine.llm_client.chat_stream(messages):
+                full_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
+
+            # 保存助手消息到数据库
+            history_manager.save_message(
+                session_id=session_id,
+                role="assistant",
+                content=full_content,
+                sources=sources_found
+            )
 
             yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
@@ -412,7 +466,7 @@ def chat_stream(request: ChatRequest):
             response_time_ms = int((time.time() - start_time) * 1000)
             analytics.log_question(
                 question=request.message,
-                session_id=request.session_id,
+                session_id=session_id,
                 source_filter=request.source_filter,
                 has_answer=len(sources_found) > 0,
                 response_time_ms=response_time_ms
@@ -558,49 +612,94 @@ def upload_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/sync", response_model=SyncResponse)
-def sync_documents(request: SyncRequest):
+def sync_documents(request: SyncRequest, background_tasks: BackgroundTasks):
     """
-    触发文档同步
+    触发文档同步（后台执行）
 
     source 参数：
     - "official": 只同步官方文档
     - "github": 只同步 GitHub 仓库
     - "all": 全部同步（默认）
     """
-    try:
-        source = request.source or "all"
-
-        if source == "official":
-            syncer = OfficialDocSyncer()
-            results = syncer.sync_all()
+    global sync_status
+    
+    with sync_lock:
+        if sync_status["is_running"]:
             return SyncResponse(
-                success=True,
-                message=f"官方文档同步完成",
-                details={"results": results}
+                success=False,
+                message="同步任务正在进行中，请稍后再试",
+                details={"status": sync_status}
             )
+        
+        sync_status["is_running"] = True
+        sync_status["current_source"] = request.source or "all"
+        sync_status["progress"] = 0
+        sync_status["total"] = 0
+        sync_status["started_at"] = datetime.now().isoformat()
+        sync_status["completed_at"] = None
+        sync_status["result"] = None
+        sync_status["error"] = None
+    
+    def run_sync_background(source: str):
+        global sync_status
+        try:
+            if source == "official":
+                syncer = OfficialDocSyncer()
+                results = syncer.sync_all()
+                with sync_lock:
+                    sync_status["result"] = {"results": results}
+                    sync_status["completed_at"] = datetime.now().isoformat()
+                    sync_status["is_running"] = False
 
-        elif source == "github":
-            syncer = GitHubSyncer()
-            result = syncer.sync_repo_docs()
-            return SyncResponse(
-                success=True,
-                message=f"GitHub 文档同步完成",
-                details=result
-            )
+            elif source == "github":
+                syncer = GitHubSyncer()
+                result = syncer.sync_repo_docs()
+                with sync_lock:
+                    sync_status["result"] = result
+                    sync_status["completed_at"] = datetime.now().isoformat()
+                    sync_status["is_running"] = False
 
-        elif source == "all":
-            result = run_full_sync()
-            return SyncResponse(
-                success=True,
-                message="全部文档同步完成",
-                details=result
-            )
+            elif source == "all":
+                result = run_full_sync()
+                with sync_lock:
+                    sync_status["result"] = result
+                    sync_status["completed_at"] = datetime.now().isoformat()
+                    sync_status["is_running"] = False
+            else:
+                with sync_lock:
+                    sync_status["error"] = f"未知的同步源: {source}"
+                    sync_status["completed_at"] = datetime.now().isoformat()
+                    sync_status["is_running"] = False
+        except Exception as e:
+            with sync_lock:
+                sync_status["error"] = str(e)
+                sync_status["completed_at"] = datetime.now().isoformat()
+                sync_status["is_running"] = False
+    
+    background_tasks.add_task(run_sync_background, request.source or "all")
+    
+    return SyncResponse(
+        success=True,
+        message=f"同步任务已启动，正在后台执行",
+        details={"source": request.source or "all"}
+    )
 
-        else:
-            raise HTTPException(status_code=400, detail=f"未知的同步源: {source}")
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/sync/status")
+def get_sync_status():
+    """获取同步任务状态"""
+    with sync_lock:
+        return {
+            "is_running": sync_status["is_running"],
+            "current_source": sync_status["current_source"],
+            "progress": sync_status["progress"],
+            "total": sync_status["total"],
+            "started_at": sync_status["started_at"],
+            "completed_at": sync_status["completed_at"],
+            "result": sync_status["result"],
+            "error": sync_status["error"]
+        }
+
 
 @app.delete("/api/session/{session_id}")
 def clear_session(

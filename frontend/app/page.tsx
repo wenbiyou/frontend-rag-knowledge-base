@@ -17,6 +17,7 @@ import { UserMenu } from "@/components/UserMenu";
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const {
     messages,
     isLoading,
@@ -25,6 +26,7 @@ export default function Home() {
     clearChat,
     loadSession,
     startNewChat,
+    hasMessages,
   } = useChat({
     enableStream: true,
   });
@@ -40,6 +42,7 @@ export default function Home() {
 
   const handleNewChat = () => {
     startNewChat();
+    setRefreshKey((prev) => prev + 1);
     if (window.innerWidth < 768) {
       setSidebarOpen(false);
     }
@@ -57,6 +60,7 @@ export default function Home() {
           onSessionSelect={handleSessionSelect}
           onNewChat={handleNewChat}
           currentSessionId={sessionId}
+          refreshKey={refreshKey}
         />
       </aside>
 

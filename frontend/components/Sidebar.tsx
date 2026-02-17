@@ -25,6 +25,7 @@ import {
   getStats,
   getSources,
   syncDocuments,
+  getSyncStatus,
   uploadDocument,
   getSessions,
   renameSession,
@@ -36,6 +37,7 @@ interface SidebarProps {
   onSessionSelect?: (sessionId: string) => void;
   onNewChat?: () => void;
   currentSessionId?: string | null;
+  refreshKey?: number;
 }
 
 export function Sidebar({
@@ -43,6 +45,7 @@ export function Sidebar({
   onSessionSelect,
   onNewChat,
   currentSessionId,
+  refreshKey,
 }: SidebarProps) {
   const [stats, setStats] = useState<{
     total_documents: number;
@@ -69,6 +72,12 @@ export function Sidebar({
     loadData();
     loadSessions();
   }, []);
+
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) {
+      loadSessions();
+    }
+  }, [refreshKey]);
 
   const loadData = async () => {
     try {
@@ -117,14 +126,56 @@ export function Sidebar({
     setSyncResult(null);
     try {
       const result = await syncDocuments(type);
-      setSyncResult({ success: true, message: result.message });
-      await loadData(); // 刷新数据
+
+      if (!result.success) {
+        setSyncResult({
+          success: false,
+          message: result.message || "同步任务启动失败",
+        });
+        setSyncing(false);
+        return;
+      }
+
+      setSyncResult({
+        success: true,
+        message: "同步任务已启动，正在后台执行...",
+      });
+
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await getSyncStatus();
+
+          if (!status.is_running && status.completed_at) {
+            clearInterval(pollInterval);
+            setSyncing(false);
+
+            if (status.error) {
+              setSyncResult({
+                success: false,
+                message: status.error,
+              });
+            } else {
+              setSyncResult({
+                success: true,
+                message: "同步完成",
+              });
+              await loadData();
+            }
+          }
+        } catch (error) {
+          clearInterval(pollInterval);
+          setSyncing(false);
+          setSyncResult({
+            success: false,
+            message: "获取同步状态失败",
+          });
+        }
+      }, 2000);
     } catch (error) {
       setSyncResult({
         success: false,
         message: error instanceof Error ? error.message : "同步失败",
       });
-    } finally {
       setSyncing(false);
     }
   };
@@ -139,26 +190,45 @@ export function Sidebar({
 
   return (
     <div className="w-full sm:w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full">
-      {/* 头部 */}
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center gap-2 mb-1">
-          <Database className="w-5 h-5 text-primary-600" />
-          <h2 className="font-semibold text-gray-900">知识库</h2>
+      {/* 头部 - 统计卡片化 */}
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="p-2 bg-primary-100 dark:bg-primary-900/30 rounded-lg">
+            <Database className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900 dark:text-white">
+              知识库
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              前端技术文档
+            </p>
+          </div>
         </div>
-        <p className="text-sm text-gray-500">
-          {stats?.total_documents || 0} 个文档片段
-        </p>
+        <div className="bg-gradient-to-r from-primary-50 to-blue-50 dark:from-primary-900/20 dark:to-blue-900/20 rounded-xl p-3 border border-primary-100 dark:border-primary-800/30">
+          <div className="flex items-baseline gap-1">
+            <span className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+              {stats?.total_documents || 0}
+            </span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              个文档片段
+            </span>
+          </div>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            来自 {sources.length} 个来源
+          </p>
+        </div>
       </div>
 
       {/* 新建对话按钮 */}
       {onNewChat && (
-        <div className="p-3 border-b border-gray-200">
+        <div className="p-3 border-b border-gray-200 dark:border-gray-700">
           <button
             onClick={onNewChat}
-            className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-all shadow-sm hover:shadow-md active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" />
-            <span>新建对话</span>
+            <span className="font-medium">新建对话</span>
           </button>
         </div>
       )}
@@ -305,7 +375,7 @@ export function Sidebar({
                   label={source.title || source.source}
                   count={source.count}
                   icon={getSourceIcon(source.type)}
-                  onClick={() => onSourceFilterChange?.(source.type)}
+                  onClick={() => onSourceFilterChange?.(source.source)}
                 />
               ))}
             </div>
@@ -363,10 +433,10 @@ function SyncButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center gap-2 w-full px-3 py-3 sm:py-2 rounded-lg text-sm transition-all active:scale-[0.98] ${
+      className={`flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-[0.98] ${
         primary
-          ? "bg-primary-600 text-white hover:bg-primary-700 disabled:bg-primary-300"
-          : "bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-400"
+          ? "bg-primary-600 text-white hover:bg-primary-700 disabled:bg-primary-300 shadow-sm hover:shadow-md"
+          : "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:bg-gray-50 dark:disabled:bg-gray-900 disabled:text-gray-400"
       }`}
     >
       {icon}
@@ -389,13 +459,17 @@ function SourceFilterButton({
   return (
     <button
       onClick={onClick}
-      className="flex items-center justify-between w-full px-3 py-3 sm:py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-all active:scale-[0.98] active:bg-gray-200"
+      className="group flex items-center justify-between w-full px-3 py-2.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all active:scale-[0.98] border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
     >
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        <span className="text-gray-400 flex-shrink-0">{icon}</span>
-        <span className="truncate">{label}</span>
+      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+        <span className="p-1.5 bg-gray-100 dark:bg-gray-800 group-hover:bg-primary-100 dark:group-hover:bg-primary-900/30 rounded-lg text-gray-400 dark:text-gray-500 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors flex-shrink-0">
+          {icon}
+        </span>
+        <span className="truncate font-medium">{label}</span>
       </div>
-      <span className="text-gray-400 text-xs flex-shrink-0 ml-2">{count}</span>
+      <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 group-hover:bg-primary-100 dark:group-hover:bg-primary-900/30 text-gray-500 dark:text-gray-400 group-hover:text-primary-600 dark:group-hover:text-primary-400 text-xs rounded-full font-medium transition-colors flex-shrink-0">
+        {count}
+      </span>
     </button>
   );
 }

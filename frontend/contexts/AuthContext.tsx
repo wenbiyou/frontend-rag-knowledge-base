@@ -87,8 +87,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || "登录失败");
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const error = await response.json();
+        throw new Error(error.detail || "登录失败");
+      } else {
+        const text = await response.text();
+        throw new Error(text || `登录失败 (${response.status})`);
+      }
+    }
+
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      const text = await response.text();
+      throw new Error(text || "服务器返回格式错误");
     }
 
     const data = await response.json();
@@ -111,8 +123,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || "注册失败");
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const error = await response.json();
+        throw new Error(error.detail || "注册失败");
+      } else {
+        const text = await response.text();
+        throw new Error(text || `注册失败 (${response.status})`);
+      }
     }
 
     await login(username, password);

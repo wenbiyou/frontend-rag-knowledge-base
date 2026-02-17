@@ -4,7 +4,8 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { AdminLayout } from "@/components/AdminLayout";
 import {
   Key,
@@ -14,8 +15,10 @@ import {
   Loader2,
   CheckCircle,
   Code,
+  LogIn,
 } from "lucide-react";
 import { getAuthHeaders } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface APIKey {
   id: number;
@@ -39,6 +42,8 @@ interface NewKeyResult {
 }
 
 export default function APIKeysPage() {
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [keys, setKeys] = useState<APIKey[]>([]);
   const [stats, setStats] = useState({ total_keys: 0, active_keys: 0, total_usage: 0 });
   const [loading, setLoading] = useState(true);
@@ -49,7 +54,8 @@ export default function APIKeysPage() {
 
   const API_BASE = "/api";
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
     try {
       const [keysRes, statsRes] = await Promise.all([
@@ -69,11 +75,15 @@ export default function APIKeysPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (!authLoading && user) {
+      loadData();
+    } else if (!authLoading && !user) {
+      setLoading(false);
+    }
+  }, [user, authLoading, loadData]);
 
   const handleCreateKey = async () => {
     if (!newKeyName.trim()) return;
@@ -132,11 +142,34 @@ export default function APIKeysPage() {
     return new Date(dateStr).toLocaleString("zh-CN");
   };
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <AdminLayout>
         <div className="flex items-center justify-center h-64">
           <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (!user) {
+    return (
+      <AdminLayout>
+        <div className="flex flex-col items-center justify-center h-64">
+          <LogIn className="w-12 h-12 text-gray-400 mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+            请先登录
+          </h2>
+          <p className="text-gray-500 dark:text-gray-400 mb-4">
+            您需要登录后才能管理 API Key
+          </p>
+          <button
+            onClick={() => router.push("/login")}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <LogIn className="w-4 h-4" />
+            <span>前往登录</span>
+          </button>
         </div>
       </AdminLayout>
     );

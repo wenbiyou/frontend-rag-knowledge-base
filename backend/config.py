@@ -93,6 +93,26 @@ OFFICIAL_SOURCES = {
             "title": "h1",
             "code": "pre"
         }
+    },
+    "python": {
+        "name": "Python 官方文档",
+        "base_url": "https://docs.python.org/3",
+        "sitemap": "https://docs.python.org/3/sitemap.xml",
+        "selectors": {
+            "content": ".body",
+            "title": "h1",
+            "code": "pre"
+        }
+    },
+    "nodejs": {
+        "name": "Node.js 官方文档",
+        "base_url": "https://nodejs.org/docs/latest/api",
+        "sitemap": None,
+        "selectors": {
+            "content": "#apicontent",
+            "title": "h1",
+            "code": "pre"
+        }
     }
 }
 

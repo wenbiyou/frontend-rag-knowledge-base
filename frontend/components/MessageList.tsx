@@ -698,17 +698,18 @@ const DocumentPreview = memo(function DocumentPreview({
   const [content, setContent] = useState<string>("");
 
   useEffect(() => {
-    // 模拟加载文档内容
-    // 实际项目中，这里应该根据 source.url 获取文档内容
     const loadContent = async () => {
       setLoading(true);
       try {
-        // 模拟网络请求延迟
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        // 模拟文档内容
-        setContent(
-          `# ${source.title}\n\n这是文档 ${source.title} 的预览内容。\n\n来源: ${source.url || "未知"}\n\n文档类型: ${source.type}`,
+        const docSource = source.url || source.title;
+        const response = await fetch(
+          `/api/documents/${encodeURIComponent(docSource)}/content`
         );
+        if (!response.ok) {
+          throw new Error("加载失败");
+        }
+        const data = await response.json();
+        setContent(`# ${data.title}\n\n${data.content}`);
       } catch (error) {
         console.error("加载文档失败:", error);
         setContent("无法加载文档内容，请点击链接在新窗口中查看。");

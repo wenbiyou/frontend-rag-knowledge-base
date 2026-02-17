@@ -1305,6 +1305,31 @@ def get_document_stats():
     return DocumentStatsResponse(**stats)
 
 
+@app.get("/api/documents/{source:path}/content")
+def get_document_content(source: str):
+    """获取文档内容（从向量数据库）"""
+    from database import get_vector_store
+
+    vector_store = get_vector_store()
+    results = vector_store.collection.get(
+        where={"source": source},
+        include=["documents", "metadatas"]
+    )
+
+    if not results["documents"]:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    content = "\n\n---\n\n".join(results["documents"])
+    title = results["metadatas"][0].get("title", source) if results["metadatas"] else source
+
+    return {
+        "source": source,
+        "title": title,
+        "content": content,
+        "chunk_count": len(results["documents"])
+    }
+
+
 @app.get("/api/documents/{source:path}")
 def get_document_detail(source: str):
     """获取单个文档详情"""
@@ -1484,7 +1509,9 @@ def create_api_key(
         key_prefix=result["key_prefix"],
         permissions=result["permissions"],
         is_active=True,
-        created_at=result["created_at"]
+        created_at=result["created_at"],
+        last_used=None,
+        usage_count=0
     )
 
 

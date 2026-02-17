@@ -5,7 +5,7 @@
 ## 功能特点
 
 - 🤖 **智能问答**：基于 DeepSeek AI，支持自然语言提问
-- 📚 **多源知识**：整合 React、Vue、TypeScript 等官方文档
+- 📚 **多源知识**：整合 React、Vue、TypeScript、Python、Node.js 等官方文档
 - 🔄 **自动同步**：每周自动更新官方文档，GitHub 仓库实时同步
 - 📄 **文档上传**：支持 Markdown、PDF、TXT 格式
 - 🔍 **来源溯源**：每个回答都标注参考来源
@@ -151,7 +151,7 @@ npm run dev
 
 ### 文档管理
 
-- **官方文档同步**：自动抓取 React、Vue、TypeScript 等官网
+- **官方文档同步**：自动抓取 React、Vue、TypeScript、Python、Node.js 等官网
 - **GitHub 同步**：同步指定仓库的 Markdown 文档
 - **本地上传**：支持上传 Markdown、PDF、TXT 文件
 
@@ -201,7 +201,7 @@ npm run dev
 ### v1.0 ✅
 
 - ✅ 基础问答功能（DeepSeek + RAG）
-- ✅ 官方文档自动同步（React、Vue、TypeScript、Tailwind、Next.js）
+- ✅ 官方文档自动同步（React、Vue、TypeScript、Tailwind、Next.js、Python、Node.js）
 - ✅ 本地文档上传（Markdown、PDF、TXT）
 - ✅ 流式响应（打字机效果）
 - ✅ 来源引用和溯源

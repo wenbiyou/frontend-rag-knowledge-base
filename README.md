@@ -97,6 +97,7 @@ DEEPSEEK_API_KEY=your_deepseek_api_key_here
 获取 DeepSeek API Key：[https://platform.deepseek.com/](https://platform.deepseek.com/)
 
 **可选配置：**
+
 - `GITHUB_REPO` / `GITHUB_TOKEN`: 同步 GitHub 文档
 - `OPENAI_API_KEY`: 如果使用 OpenAI 的 Embedding（DeepSeek 暂不支持）
 
@@ -115,6 +116,7 @@ npm run dev
 ### 4. 启动服务
 
 **终端 1 - 启动后端：**
+
 ```bash
 cd backend
 source venv/bin/activate
@@ -123,6 +125,7 @@ python main.py
 ```
 
 **终端 2 - 启动前端：**
+
 ```bash
 cd frontend
 npm run dev
@@ -155,6 +158,7 @@ npm run dev
 ### 筛选功能
 
 点击左侧边栏的文档来源，可以只搜索特定类型的文档：
+
 - 官方文档
 - GitHub 文档
 - 上传的文档
@@ -165,18 +169,19 @@ npm run dev
 
 主要接口：
 
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/api/chat` | POST | 非流式对话 |
+| 接口               | 方法 | 说明            |
+| ------------------ | ---- | --------------- |
+| `/api/chat`        | POST | 非流式对话      |
 | `/api/chat/stream` | POST | 流式对话（SSE） |
-| `/api/upload` | POST | 上传文档 |
-| `/api/sync` | POST | 触发文档同步 |
-| `/api/stats` | GET | 获取统计信息 |
-| `/api/sources` | GET | 获取文档来源 |
+| `/api/upload`      | POST | 上传文档        |
+| `/api/sync`        | POST | 触发文档同步    |
+| `/api/stats`       | GET  | 获取统计信息    |
+| `/api/sources`     | GET  | 获取文档来源    |
 
 ## 技术栈
 
 **后端：**
+
 - Python 3.10+
 - FastAPI - Web 框架
 - ChromaDB - 向量数据库
@@ -184,6 +189,7 @@ npm run dev
 - LangChain - RAG 框架
 
 **前端：**
+
 - Next.js 14
 - React 18
 - TypeScript
@@ -192,7 +198,8 @@ npm run dev
 
 ## 版本历史
 
-### v1.0 (2024-02-14) ✅
+### v1.0 ✅
+
 - ✅ 基础问答功能（DeepSeek + RAG）
 - ✅ 官方文档自动同步（React、Vue、TypeScript、Tailwind、Next.js）
 - ✅ 本地文档上传（Markdown、PDF、TXT）

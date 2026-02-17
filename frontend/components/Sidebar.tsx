@@ -33,7 +33,7 @@ import {
 } from "@/lib/api";
 
 interface SidebarProps {
-  onSourceFilterChange?: (filter: string | null) => void;
+  onSourceFilterChange?: (filter: string | null, name?: string) => void;
   onSessionSelect?: (sessionId: string) => void;
   onNewChat?: () => void;
   currentSessionId?: string | null;
@@ -367,7 +367,7 @@ export function Sidebar({
                 label="全部来源"
                 count={stats?.total_documents || 0}
                 icon={<Database className="w-4 h-4" />}
-                onClick={() => onSourceFilterChange?.(null)}
+                onClick={() => onSourceFilterChange?.(null, "全部来源")}
               />
               {sources.map((source, i) => (
                 <SourceFilterButton
@@ -375,7 +375,7 @@ export function Sidebar({
                   label={source.title || source.source}
                   count={source.count}
                   icon={getSourceIcon(source.type)}
-                  onClick={() => onSourceFilterChange?.(source.source)}
+                  onClick={() => onSourceFilterChange?.(source.source, source.title || source.source)}
                 />
               ))}
             </div>

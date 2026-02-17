@@ -17,6 +17,7 @@ import { UserMenu } from "@/components/UserMenu";
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [sourceFilterName, setSourceFilterName] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const {
     messages,
@@ -48,6 +49,11 @@ export default function Home() {
     }
   };
 
+  const handleSourceFilterChange = (filter: string | null, name?: string) => {
+    setSourceFilter(filter);
+    setSourceFilterName(name || filter);
+  };
+
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
       <aside
@@ -56,7 +62,7 @@ export default function Home() {
         } fixed inset-y-0 left-0 z-30 w-[280px] sm:w-72 transform transition-transform duration-300 ease-out md:relative md:translate-x-0 shadow-2xl md:shadow-none`}
       >
         <Sidebar
-          onSourceFilterChange={setSourceFilter}
+          onSourceFilterChange={handleSourceFilterChange}
           onSessionSelect={handleSessionSelect}
           onNewChat={handleNewChat}
           currentSessionId={sessionId}
@@ -88,12 +94,7 @@ export default function Home() {
               </h1>
               {sourceFilter && (
                 <span className="hidden sm:inline-flex items-center text-xs sm:text-sm text-primary-600 bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 sm:py-1 rounded-full whitespace-nowrap">
-                  筛选:{" "}
-                  {sourceFilter === "official"
-                    ? "官方"
-                    : sourceFilter === "github"
-                      ? "GitHub"
-                      : sourceFilter}
+                  筛选: {sourceFilterName}
                 </span>
               )}
             </div>

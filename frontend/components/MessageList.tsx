@@ -250,7 +250,7 @@ interface StreamingContentProps {
 }
 
 interface ContentPart {
-  type: 'code' | 'text';
+  type: "code" | "text";
   content: string;
   language?: string;
   index: number;
@@ -264,13 +264,13 @@ const StreamingContent = memo(function StreamingContent({
     const rawParts = content.split(/(```[\s\S]*?```)/);
     let textIndex = 0;
     let codeIndex = 0;
-    
+
     return rawParts.map((part, index) => {
       if (part.startsWith("```") && part.endsWith("```")) {
         const match = part.match(/```(\w+)?\n?([\s\S]*?)```/);
         if (match) {
           return {
-            type: 'code' as const,
+            type: "code" as const,
             content: match[2].trim(),
             language: match[1] || "text",
             index: codeIndex++,
@@ -278,7 +278,7 @@ const StreamingContent = memo(function StreamingContent({
         }
       }
       return {
-        type: 'text' as const,
+        type: "text" as const,
         content: part,
         index: textIndex++,
       };
@@ -287,7 +287,7 @@ const StreamingContent = memo(function StreamingContent({
 
   const lastTextPartIndex = useMemo(() => {
     for (let i = parts.length - 1; i >= 0; i--) {
-      if (parts[i].type === 'text') {
+      if (parts[i].type === "text") {
         return i;
       }
     }
@@ -297,7 +297,7 @@ const StreamingContent = memo(function StreamingContent({
   return (
     <>
       {parts.map((part, index) => {
-        if (part.type === 'code') {
+        if (part.type === "code") {
           return (
             <CodeBlock
               key={`code_${part.index}_${part.content.length}`}
@@ -324,6 +324,11 @@ const StreamingContent = memo(function StreamingContent({
 /**
  * 可折叠内容组件
  * 长回答自动折叠，支持展开/收起
+ *
+ * 优化：
+ * - 流式输出时自动重置折叠状态
+ * - 智能截断：在空格/标点处截断，避免截断单词/代码
+ * - useMemo 缓存计算结果
  */
 interface CollapsibleContentProps {
   content: string;
@@ -334,15 +339,37 @@ interface CollapsibleContentProps {
 const CollapsibleContent = memo(function CollapsibleContent({
   content,
   isStreaming = false,
-  threshold = 500,
+  threshold = 1000,
 }: CollapsibleContentProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const shouldCollapse = !isStreaming && content.length > threshold;
 
-  const displayContent =
-    shouldCollapse && !isExpanded
-      ? content.substring(0, threshold) + "..."
-      : content;
+  useEffect(() => {
+    if (isStreaming) {
+      setIsExpanded(false);
+    }
+  }, [isStreaming]);
+
+  const displayContent = useMemo(() => {
+    if (isStreaming || isExpanded || content.length <= threshold) {
+      return content;
+    }
+
+    let cutPoint = threshold;
+    const searchRange = 50;
+
+    for (let i = threshold; i > threshold - searchRange && i > 0; i--) {
+      const char = content[i];
+      if (/[\s，。！？；：\n]/.test(char)) {
+        cutPoint = i;
+        break;
+      }
+    }
+
+    return content.substring(0, cutPoint) + "...";
+  }, [content, isStreaming, isExpanded, threshold]);
+
+  const shouldCollapse = !isStreaming && content.length > threshold;
+  const remainingChars = content.length - threshold;
 
   return (
     <div className="relative">
@@ -351,12 +378,12 @@ const CollapsibleContent = memo(function CollapsibleContent({
         <div className="mt-3">
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1"
+            className="text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1 transition-all"
           >
             {isExpanded ? (
               <>
                 <svg
-                  className="w-4 h-4"
+                  className="w-4 h-4 transition-transform"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -373,7 +400,7 @@ const CollapsibleContent = memo(function CollapsibleContent({
             ) : (
               <>
                 <svg
-                  className="w-4 h-4"
+                  className="w-4 h-4 transition-transform"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -385,7 +412,10 @@ const CollapsibleContent = memo(function CollapsibleContent({
                     d="M19 9l-7 7-7-7"
                   />
                 </svg>
-                展开全部 ({Math.ceil((content.length - threshold) / 100) * 100}{" "}
+                展开全部 (
+                {remainingChars > 100
+                  ? `${Math.ceil(remainingChars / 100) * 100}`
+                  : remainingChars}{" "}
                 字)
               </>
             )}
@@ -681,14 +711,30 @@ const TextPart = memo(function TextPart({
   }, [content, showCursor]);
 
   const formatted = useMemo(() => {
-    return content
+    const escapeHtml = (str: string) => {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    };
+
+    let result = content;
+
+    result = result.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+      return `<pre><code class="language-${lang}">${escapeHtml(code)}</code></pre>`;
+    });
+
+    result = result.replace(
+      /`([^`]+)`/g,
+      (_, code) => `<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm text-red-600 dark:text-red-400">${escapeHtml(code)}</code>`
+    );
+
+    result = result
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
-      .replace(
-        /`(.+?)`/g,
-        '<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm text-red-600 dark:text-red-400">$1</code>',
-      )
       .replace(/\n/g, "<br />");
+
+    return result;
   }, [content]);
 
   return (
@@ -708,9 +754,9 @@ const TextPart = memo(function TextPart({
  */
 function TypingCursor({ isActive = false }: { isActive?: boolean }) {
   return (
-    <span 
+    <span
       className={`inline-block w-2 h-5 bg-primary-500 ml-0.5 align-middle rounded-sm ${
-        isActive ? 'animate-cursor-fast' : 'animate-cursor'
+        isActive ? "animate-cursor-fast" : "animate-cursor"
       }`}
     />
   );

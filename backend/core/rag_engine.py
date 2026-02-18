@@ -9,12 +9,24 @@ RAG = Retrieval Augmented Generation（检索增强生成）
 4. 将相关文档作为上下文，让 LLM 生成回答
 5. 返回答案 + 引用来源
 
-类比：像开卷考试，先查资料，再基于资料组织答案
+优化：
+- 混合检索：向量 + 关键词（BM25）
+- 查询扩展：同义词、实体识别
+- RRF 融合排序
 """
+import math
 from typing import List, Dict, Tuple
+
 from core.database import get_vector_store
 from ai.deepseek_client import get_llm_client, get_embedding_client
-from config import TOP_K, SIMILARITY_THRESHOLD, MAX_CONTEXT_LENGTH, ENABLE_CACHE, CACHE_TTL
+from core.hybrid_search import get_hybrid_searcher, QueryExpander
+from config import (
+    TOP_K,
+    INITIAL_TOP_K,
+    SIMILARITY_THRESHOLD,
+    MAX_CONTEXT_LENGTH,
+    ENABLE_HYBRID_SEARCH,
+)
 
 
 class RAGEngine:
@@ -54,10 +66,12 @@ class RAGEngine:
         self.vector_store = get_vector_store()
         self.llm_client = get_llm_client()
         self.embedding_client = get_embedding_client()
+        self.hybrid_searcher = get_hybrid_searcher()
+        self.query_expander = QueryExpander()
 
     def _retrieve(self, query: str, source_filter: str = None, top_k: int = None) -> Tuple[List[str], List[Dict]]:
         """
-        检索相关文档
+        检索相关文档（混合检索：向量 + 关键词）
 
         Args:
             query: 用户查询
@@ -67,36 +81,56 @@ class RAGEngine:
         Returns:
             (文档内容列表, 元数据列表)
         """
-        # 1. 将查询转为向量
-        query_embedding = self.embedding_client.get_embeddings([query])[0]
+        expanded_queries = self.query_expander.expand(query)
+        primary_query = self.query_expander.get_primary_expansion(query)
 
-        # 2. 构建过滤条件
+        query_embedding = self.embedding_client.get_embeddings([primary_query])[0]
+
         filter_dict = None
         if source_filter:
             filter_dict = {"source_type": source_filter}
 
-        # 3. 执行检索
         results = self.vector_store.query(
             query_embedding=query_embedding,
-            n_results=top_k or TOP_K,
+            n_results=INITIAL_TOP_K,
             filter_dict=filter_dict
         )
 
-        # 4. 处理结果
-        documents = results.get("documents", [[]])[0]  # ChromaDB 返回嵌套列表
+        documents = results.get("documents", [[]])[0]
         metadatas = results.get("metadatas", [[]])[0]
         distances = results.get("distances", [[]])[0]
 
-        # 5. 根据相似度阈值过滤（ChromaDB 返回的是 L2 距离，越小越相似）
-        # 使用指数衰减函数将 L2 距离转换为相似度分数
-        import math
+        vector_results = []
+        for doc, meta, dist in zip(documents, metadatas, distances):
+            similarity = math.exp(-dist / 10.0)
+            meta['id'] = meta.get('id', str(hash(doc)))
+            vector_results.append((doc, meta, similarity))
+
+        if ENABLE_HYBRID_SEARCH and len(vector_results) > 0:
+            all_docs = [r[0] for r in vector_results]
+            all_metas = [r[1] for r in vector_results]
+
+            fused_results = self.hybrid_searcher.search(
+                query=query,
+                vector_results=vector_results,
+                documents=all_docs,
+                metadatas=all_metas
+            )
+
+            final_results = []
+            seen_ids = set()
+            for doc, meta, score in fused_results:
+                if meta.get('id') not in seen_ids:
+                    seen_ids.add(meta.get('id'))
+                    final_results.append((doc, meta, score))
+
+            final_results = final_results[:top_k or TOP_K]
+        else:
+            final_results = vector_results[:top_k or TOP_K]
+
         filtered_docs = []
         filtered_metas = []
-
-        for doc, meta, dist in zip(documents, metadatas, distances):
-            # 使用指数函数转换距离为相似度：距离越小，相似度越高
-            # 当 dist=0 时 similarity=1，当 dist 增大时 similarity 趋近于 0
-            similarity = math.exp(-dist / 10.0)
+        for doc, meta, similarity in final_results:
             if similarity >= SIMILARITY_THRESHOLD:
                 filtered_docs.append(doc)
                 filtered_metas.append(meta)

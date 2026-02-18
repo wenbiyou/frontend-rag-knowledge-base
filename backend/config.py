@@ -163,8 +163,25 @@ LLM_TEMPERATURE = 0.3  # 较低的温度使回答更确定、更精确
 LLM_MAX_TOKENS = 2000  # 最大回答长度
 
 # 检索配置
-TOP_K = 3  # 每次检索返回的最相关文档数量（优化：从5减少到3）
-SIMILARITY_THRESHOLD = 0.1  # 相似度阈值，低于此值的结果会被过滤（本地模型建议设置较低，如0.1-0.2）
+TOP_K = 5  # 每次检索返回的最相关文档数量
+INITIAL_TOP_K = 20  # 初始检索数量（用于重排序）
+SIMILARITY_THRESHOLD = 0.01  # 相似度阈值（降低以返回更多结果）
+
+# 混合检索配置
+ENABLE_HYBRID_SEARCH = True  # 启用混合检索（向量 + 关键词）
+KEYWORD_WEIGHT = 0.3  # 关键词检索权重
+VECTOR_WEIGHT = 0.7  # 向量检索权重
+
+# 查询优化配置
+ENABLE_QUERY_EXPANSION = True  # 启用查询扩展
+QUERY_EXPANSION_TERMS = {
+    "vue": ["Vue.js", "Vuejs", "Vue3", "Vue2"],
+    "react": ["React.js", "Reactjs", "React18"],
+    "ts": ["TypeScript", "TypeScript5"],
+    "js": ["JavaScript", "ES6", "ES2015"],
+    "css": ["StyleSheet", "Style"],
+    "tailwind": ["TailwindCSS", "Tailwind CSS"],
+}
 
 # 上下文优化配置
 MAX_CONTEXT_LENGTH = 500  # 每个文档上下文最大字符数（优化：限制上下文长度）

@@ -5,22 +5,24 @@ Agent 编排器
 
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
-import json
 import uuid
 from datetime import datetime
+
+from agent.orchestrator.planner import TaskPlanner, SubTask, get_task_planner
+from agent.orchestrator.executor import TaskExecutor, ExecutionResult, get_task_executor
+from agent.orchestrator.aggregator import ResultAggregator, AggregatedResult, get_result_aggregator
 
 
 @dataclass
 class Task:
     """任务定义"""
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     name: str = ""
     description: str = ""
     status: str = "pending"
     result: Any = None
     error: Optional[str] = None
-    subtasks: List["Task"] = field(default_factory=list)
+    subtasks: List[SubTask] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     completed_at: Optional[str] = None
 
@@ -53,6 +55,9 @@ class AgentOrchestrator:
     def __init__(self):
         self._tasks: Dict[str, Task] = {}
         self._context: Optional[AgentContext] = None
+        self.planner = get_task_planner()
+        self.executor = get_task_executor()
+        self.aggregator = get_result_aggregator()
 
     def create_task(
         self,
@@ -92,16 +97,77 @@ class AgentOrchestrator:
 
         return task
 
-    def decompose_task(self, task: Task) -> List[Task]:
-        """分解任务（占位实现）"""
-        return []
+    def decompose_task(self, task: Task, query: str) -> List[SubTask]:
+        """分解任务"""
+        subtasks = self.planner.decompose_complex_task(query)
+        task.subtasks = subtasks
+        return subtasks
 
-    def aggregate_results(self, tasks: List[Task]) -> Any:
-        """聚合结果"""
+    def execute_task(
+        self,
+        query: str,
+        auto_decompose: bool = True
+    ) -> AggregatedResult:
+        """
+        执行任务
+
+        Args:
+            query: 用户查询
+            auto_decompose: 是否自动分解
+
+        Returns:
+            聚合结果
+        """
+        task = self.create_task(
+            name="User Query",
+            description=query
+        )
+        task.status = "running"
+
+        if auto_decompose:
+            subtasks = self.planner.plan(query)
+        else:
+            subtasks = [SubTask(
+                id=f"single_{task.id}",
+                name="直接执行",
+                description=query,
+                task_type=self.planner._classify_task(query),
+                parameters={"query": query}
+            )]
+
+        task.subtasks = subtasks
+
+        execution_order = self.planner.get_execution_order(subtasks)
+
+        results = self.executor.execute_with_dependencies(subtasks, execution_order)
+
+        aggregated = self.aggregator.aggregate(query, subtasks, results)
+
+        task.result = aggregated.to_dict()
+        task.status = "completed" if aggregated.success else "partial"
+        task.completed_at = datetime.now().isoformat()
+
+        return aggregated
+
+    def execute_parallel_tasks(
+        self,
+        queries: List[str]
+    ) -> List[AggregatedResult]:
+        """
+        并行执行多个任务
+
+        Args:
+            queries: 查询列表
+
+        Returns:
+            结果列表
+        """
         results = []
-        for task in tasks:
-            if task.status == "completed" and task.result is not None:
-                results.append(task.result)
+
+        for query in queries:
+            result = self.execute_task(query)
+            results.append(result)
+
         return results
 
     def set_context(self, context: AgentContext) -> None:
@@ -111,6 +177,19 @@ class AgentOrchestrator:
     def get_context(self) -> Optional[AgentContext]:
         """获取上下文"""
         return self._context
+
+    def get_task_history(self, limit: int = 10) -> List[Dict]:
+        """获取任务历史"""
+        tasks = sorted(
+            self._tasks.values(),
+            key=lambda t: t.created_at,
+            reverse=True
+        )[:limit]
+        return [t.to_dict() for t in tasks]
+
+    def clear_history(self) -> None:
+        """清空历史"""
+        self._tasks.clear()
 
 
 _orchestrator: Optional[AgentOrchestrator] = None

@@ -3006,6 +3006,79 @@ def get_tool_schemas_for_llm():
     return {"tools": registry.get_tool_schemas_for_llm()}
 
 
+# ==================== Agent 编排 API ====================
+
+class AgentExecuteRequest(BaseModel):
+    """Agent 执行请求"""
+    query: str
+    auto_decompose: bool = True
+
+
+@app.post("/api/agent/execute")
+def execute_agent_task(
+    request: AgentExecuteRequest,
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
+    """
+    执行 Agent 任务
+
+    自动分解任务、并行执行子任务、聚合结果
+    """
+    from agent.orchestrator import get_orchestrator
+
+    orchestrator = get_orchestrator()
+
+    result = orchestrator.execute_task(
+        query=request.query,
+        auto_decompose=request.auto_decompose
+    )
+
+    return result.to_dict()
+
+
+@app.get("/api/agent/tasks")
+def get_agent_tasks(limit: int = Query(10, ge=1, le=100)):
+    """获取 Agent 任务历史"""
+    from agent.orchestrator import get_orchestrator
+
+    orchestrator = get_orchestrator()
+    return {"tasks": orchestrator.get_task_history(limit)}
+
+
+@app.get("/api/agent/tasks/{task_id}")
+def get_agent_task_detail(task_id: str):
+    """获取 Agent 任务详情"""
+    from agent.orchestrator import get_orchestrator
+
+    orchestrator = get_orchestrator()
+    task = orchestrator.get_task(task_id)
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    return task.to_dict()
+
+
+@app.post("/api/agent/plan")
+def plan_agent_task(query: str):
+    """
+    规划 Agent 任务
+
+    分析任务并返回子任务列表，不执行
+    """
+    from agent.orchestrator import get_task_planner
+
+    planner = get_task_planner()
+    subtasks = planner.plan(query)
+    execution_order = planner.get_execution_order(subtasks)
+
+    return {
+        "query": query,
+        "subtasks": [t.to_dict() for t in subtasks],
+        "execution_order": [[t.id for t in batch] for batch in execution_order]
+    }
+
+
 # ==================== 启动入口 ====================
 
 def main():

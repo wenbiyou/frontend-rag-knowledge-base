@@ -123,7 +123,8 @@ const WelcomeMessage = memo(function WelcomeMessage() {
       </h2>
       <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-md">
         我可以帮你查找前端技术知识、公司内部规范和最佳实践。 支持
-        React、Vue、TypeScript 等官方文档，以及你们的 GitHub 仓库。
+        React、Vue、TypeScript、Node、Python 等官方文档，以及你们的 GitHub
+        仓库。
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full px-4">
@@ -190,7 +191,10 @@ const MessageItem = memo(function MessageItem({
         {/* 目录导航 - 仅对 AI 消息显示 */}
         {!isUser && !message.isStreaming && (
           <div className="mb-2">
-            <TableOfContents content={message.content} onHeadingClick={handleHeadingClick} />
+            <TableOfContents
+              content={message.content}
+              onHeadingClick={handleHeadingClick}
+            />
           </div>
         )}
 
@@ -237,59 +241,78 @@ const MessageItem = memo(function MessageItem({
 });
 
 /**
- * 流式内容组件 - 带打字机效果
+ * 流式内容组件 - 即时显示流式内容
+ * 性能优化：使用 useMemo 缓存分割结果，减少重渲染
  */
 interface StreamingContentProps {
   content: string;
   isStreaming?: boolean;
 }
 
-// 使用 memo 减少重渲染
+interface ContentPart {
+  type: 'code' | 'text';
+  content: string;
+  language?: string;
+  index: number;
+}
+
 const StreamingContent = memo(function StreamingContent({
   content,
   isStreaming = false,
 }: StreamingContentProps) {
-  // 将内容按代码块分割 - 使用 useMemo 缓存结果
-  const parts = useMemo(() => {
-    return content.split(/(```[\s\S]*?```)/);
+  const parts = useMemo<ContentPart[]>(() => {
+    const rawParts = content.split(/(```[\s\S]*?```)/);
+    let textIndex = 0;
+    let codeIndex = 0;
+    
+    return rawParts.map((part, index) => {
+      if (part.startsWith("```") && part.endsWith("```")) {
+        const match = part.match(/```(\w+)?\n?([\s\S]*?)```/);
+        if (match) {
+          return {
+            type: 'code' as const,
+            content: match[2].trim(),
+            language: match[1] || "text",
+            index: codeIndex++,
+          };
+        }
+      }
+      return {
+        type: 'text' as const,
+        content: part,
+        index: textIndex++,
+      };
+    });
   }, [content]);
 
-  // 找到最后一个非代码块的文本部分 - 使用 useMemo 缓存结果
   const lastTextPartIndex = useMemo(() => {
-    let index = -1;
-    parts.forEach((part, i) => {
-      if (!part.startsWith("```")) {
-        index = i;
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (parts[i].type === 'text') {
+        return i;
       }
-    });
-    return index;
+    }
+    return -1;
   }, [parts]);
 
   return (
     <>
       {parts.map((part, index) => {
-        // 代码块处理
-        if (part.startsWith("```") && part.endsWith("```")) {
-          const match = part.match(/```(\w+)?\n?([\s\S]*?)```/);
-          if (match) {
-            const [, language, code] = match;
-            return (
-              <CodeBlock
-                key={`code_${index}_${part.length}`}
-                language={language || "text"}
-                code={code.trim()}
-              />
-            );
-          }
+        if (part.type === 'code') {
+          return (
+            <CodeBlock
+              key={`code_${part.index}_${part.content.length}`}
+              language={part.language || "text"}
+              code={part.content}
+            />
+          );
         }
 
-        // 普通文本处理 - 带打字机效果
         const showCursor = isStreaming && index === lastTextPartIndex;
 
         return (
           <TextPart
-            key={`text_${index}`}
-            content={part}
+            key={`text_${part.index}`}
+            content={part.content}
             showCursor={showCursor}
           />
         );
@@ -316,9 +339,10 @@ const CollapsibleContent = memo(function CollapsibleContent({
   const [isExpanded, setIsExpanded] = useState(false);
   const shouldCollapse = !isStreaming && content.length > threshold;
 
-  const displayContent = shouldCollapse && !isExpanded
-    ? content.substring(0, threshold) + "..."
-    : content;
+  const displayContent =
+    shouldCollapse && !isExpanded
+      ? content.substring(0, threshold) + "..."
+      : content;
 
   return (
     <div className="relative">
@@ -331,17 +355,38 @@ const CollapsibleContent = memo(function CollapsibleContent({
           >
             {isExpanded ? (
               <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M5 15l7-7 7 7"
+                  />
                 </svg>
                 收起内容
               </>
             ) : (
               <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
                 </svg>
-                展开全部 ({Math.ceil((content.length - threshold) / 100) * 100} 字)
+                展开全部 ({Math.ceil((content.length - threshold) / 100) * 100}{" "}
+                字)
               </>
             )}
           </button>
@@ -401,8 +446,18 @@ const TableOfContents = memo(function TableOfContents({
         className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
         title="目录导航"
       >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+        <svg
+          className="w-4 h-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M4 6h16M4 12h16M4 18h7"
+          />
         </svg>
         <span>目录 ({headings.length})</span>
       </button>
@@ -411,13 +466,25 @@ const TableOfContents = memo(function TableOfContents({
         <div className="absolute left-0 top-full mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10 max-h-80 overflow-y-auto">
           <div className="p-3">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">目录导航</h4>
+              <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                目录导航
+              </h4>
               <button
                 onClick={() => setIsOpen(false)}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
@@ -576,7 +643,8 @@ const CodeBlock = memo(function CodeBlock({ language, code }: CodeBlockProps) {
 });
 
 /**
- * 文本部分组件 - 支持打字机效果
+ * 文本部分组件 - 即时显示流式内容
+ * 移除人为打字机延迟，实现与后端SSE同步的实时显示
  */
 
 interface TextPartProps {
@@ -584,74 +652,36 @@ interface TextPartProps {
   showCursor: boolean;
 }
 
-// 使用 memo 减少重渲染
 const TextPart = memo(function TextPart({
   content,
   showCursor,
 }: TextPartProps) {
-  const [displayedContent, setDisplayedContent] = useState(content);
-  const [isTyping, setIsTyping] = useState(showCursor);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const prevContentRef = useRef(content);
+  const [isReceiving, setIsReceiving] = useState(false);
+  const receiveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // 清理之前的定时器
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = null;
-    }
-
-    // 如果不在流式状态，直接显示完整内容
-    if (!showCursor) {
-      setDisplayedContent(content);
-      setIsTyping(false);
-      return;
-    }
-
-    // 流式状态下，如果内容增加了，启动逐字动画
-    if (content.length > displayedContent.length) {
-      setIsTyping(true);
-      const targetText = content;
-      let currentIndex = displayedContent.length;
-
-      const typeNextChar = () => {
-        if (currentIndex < targetText.length) {
-          // 每次显示 1-2 个字符，模拟打字速度
-          const chunkSize = Math.floor(Math.random() * 2) + 1;
-          currentIndex = Math.min(currentIndex + chunkSize, targetText.length);
-          setDisplayedContent(targetText.slice(0, currentIndex));
-
-          // 根据字符类型调整延迟
-          const char = targetText[currentIndex - 1];
-          let delay = 15; // 基础延迟 15ms
-
-          if (char === " ") {
-            delay = 30; // 空格和换行稍慢
-          } else if (`，。！？；：""''（）`.includes(char)) {
-            delay = 80; // 标点符号停顿一下
-          } else if (`,.!?;:()""''`.includes(char)) {
-            delay = 60; // 英文标点
-          }
-
-          typingTimeoutRef.current = setTimeout(typeNextChar, delay);
-        } else {
-          setIsTyping(false);
+    if (content !== prevContentRef.current) {
+      prevContentRef.current = content;
+      if (showCursor) {
+        setIsReceiving(true);
+        if (receiveTimeoutRef.current) {
+          clearTimeout(receiveTimeoutRef.current);
         }
-      };
-
-      typeNextChar();
+        receiveTimeoutRef.current = setTimeout(() => {
+          setIsReceiving(false);
+        }, 100);
+      }
     }
-
-    // 清理函数
     return () => {
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
+      if (receiveTimeoutRef.current) {
+        clearTimeout(receiveTimeoutRef.current);
       }
     };
-  }, [content, showCursor, displayedContent.length]);
+  }, [content, showCursor]);
 
-  // 简单的 Markdown 转换 - 使用 useMemo 缓存结果
   const formatted = useMemo(() => {
-    return displayedContent
+    return content
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.+?)\*/g, "<em>$1</em>")
       .replace(
@@ -659,7 +689,7 @@ const TextPart = memo(function TextPart({
         '<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm text-red-600 dark:text-red-400">$1</code>',
       )
       .replace(/\n/g, "<br />");
-  }, [displayedContent]);
+  }, [content]);
 
   return (
     <span className="leading-relaxed inline">
@@ -667,17 +697,22 @@ const TextPart = memo(function TextPart({
         className="typing-content"
         dangerouslySetInnerHTML={{ __html: formatted }}
       />
-      {(showCursor || isTyping) && <TypingCursor />}
+      {showCursor && <TypingCursor isActive={isReceiving} />}
     </span>
   );
 });
 
 /**
- * 打字机光标组件
+ * 打字机光标组件 - CSS动画实现
+ * isActive: 是否正在接收数据，影响动画速度
  */
-function TypingCursor() {
+function TypingCursor({ isActive = false }: { isActive?: boolean }) {
   return (
-    <span className="inline-block w-2 h-5 bg-primary-500 ml-0.5 align-middle animate-pulse rounded-sm" />
+    <span 
+      className={`inline-block w-2 h-5 bg-primary-500 ml-0.5 align-middle rounded-sm ${
+        isActive ? 'animate-cursor-fast' : 'animate-cursor'
+      }`}
+    />
   );
 }
 
@@ -703,7 +738,7 @@ const DocumentPreview = memo(function DocumentPreview({
       try {
         const docSource = source.source || source.url || source.title;
         const response = await fetch(
-          `/api/documents/${encodeURIComponent(docSource)}/content`
+          `/api/documents/${encodeURIComponent(docSource)}/content`,
         );
         if (!response.ok) {
           throw new Error("加载失败");

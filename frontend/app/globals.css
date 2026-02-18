@@ -127,6 +127,28 @@ code {
   color: #3b82f6;
 }
 
+/* 流式输出光标动画 - 等待状态 */
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* 流式输出光标动画 - 接收数据状态 */
+@keyframes cursor-blink-fast {
+  0%, 100% { opacity: 1; }
+  25% { opacity: 0.5; }
+  50% { opacity: 1; }
+  75% { opacity: 0.5; }
+}
+
+.animate-cursor {
+  animation: cursor-blink 1s ease-in-out infinite;
+}
+
+.animate-cursor-fast {
+  animation: cursor-blink-fast 0.3s ease-in-out infinite;
+}
+
 /* 移动端优化 */
 @media (max-width: 640px) {
   /* 减小内边距 */

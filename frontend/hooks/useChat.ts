@@ -2,9 +2,12 @@
  * 聊天状态管理 Hook
  * 管理会话、消息列表、发送消息等功能
  * 支持对话历史持久化
+ * 
+ * 优化：使用 flushSync + requestAnimationFrame 实现实时流式显示
  */
 
 import { useState, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import {
   ChatMessage,
   Source,
@@ -22,6 +25,8 @@ interface UseChatReturn {
   messages: ChatMessage[];
   isLoading: boolean;
   sessionId: string | null;
+  status: string;
+  isCached: boolean;
   sendMessage: (content: string, sourceFilter?: string) => Promise<void>;
   clearChat: () => void;
   loadSession: (sid: string) => Promise<void>;
@@ -35,41 +40,95 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [status, setStatus] = useState('');
+  const [isCached, setIsCached] = useState(false);
 
-  // 使用 ref 存储当前正在流式接收的消息内容
   const currentStreamContent = useRef('');
   const currentSources = useRef<Source[]>([]);
   const assistantMessageIndexRef = useRef<number>(0);
+  const lastRenderTimeRef = useRef<number>(0);
+  const pendingContentRef = useRef<string>('');
+  const rafIdRef = useRef<number | null>(null);
+
+  const updateStreamingMessage = useCallback(() => {
+    if (pendingContentRef.current === '') return;
+    
+    const contentToUpdate = pendingContentRef.current;
+    pendingContentRef.current = '';
+    
+    flushSync(() => {
+      setMessages((prev) => {
+        const newMessages = [...prev];
+        const idx = assistantMessageIndexRef.current;
+        if (newMessages[idx] && newMessages[idx].role === 'assistant') {
+          newMessages[idx] = {
+            ...newMessages[idx],
+            content: contentToUpdate,
+            sources: currentSources.current,
+            isStreaming: true,
+          };
+        }
+        return newMessages;
+      });
+    });
+    
+    lastRenderTimeRef.current = performance.now();
+  }, []);
+
+  const scheduleRender = useCallback(() => {
+    if (rafIdRef.current !== null) {
+      return;
+    }
+    
+    const now = performance.now();
+    const timeSinceLastRender = now - lastRenderTimeRef.current;
+    const minFrameTime = 16;
+    
+    if (timeSinceLastRender >= minFrameTime) {
+      updateStreamingMessage();
+    } else {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        updateStreamingMessage();
+      });
+    }
+  }, [updateStreamingMessage]);
 
   const sendMessage = useCallback(
     async (content: string, sourceFilter?: string) => {
       if (!content.trim() || isLoading) return;
 
-      // 添加用户消息
       const userMessage: ChatMessage = {
         role: 'user',
         content: content.trim(),
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      flushSync(() => {
+        setMessages((prev) => [...prev, userMessage]);
+      });
       setIsLoading(true);
 
-      // 添加一个空的助手消息占位，使用函数式更新获取最新索引
-      setMessages((prev) => {
-        assistantMessageIndexRef.current = prev.length;
-        const assistantMessage: ChatMessage = {
-          role: 'assistant',
-          content: '',
-          isStreaming: true,
-        };
-        return [...prev, assistantMessage];
+      flushSync(() => {
+        setMessages((prev) => {
+          assistantMessageIndexRef.current = prev.length;
+          const assistantMessage: ChatMessage = {
+            role: 'assistant',
+            content: '',
+            isStreaming: true,
+          };
+          return [...prev, assistantMessage];
+        });
       });
+      
       currentStreamContent.current = '';
+      pendingContentRef.current = '';
       currentSources.current = [];
+      lastRenderTimeRef.current = 0;
+      setStatus('正在连接...');
+      setIsCached(false);
 
       try {
         if (enableStream) {
-          // 流式请求
           for await (const chunk of sendStreamChatMessage({
             message: content,
             session_id: sessionId || undefined,
@@ -79,41 +138,40 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               setSessionId(chunk.data);
             } else if (chunk.type === 'sources') {
               currentSources.current = chunk.data;
+            } else if (chunk.type === 'status') {
+              setStatus(chunk.data);
+            } else if (chunk.type === 'cached') {
+              setIsCached(true);
+              setStatus('来自缓存');
             } else if (chunk.type === 'content') {
               currentStreamContent.current += chunk.data;
-              // 更新消息内容
-              setMessages((prev) => {
-                const newMessages = [...prev];
-                const idx = assistantMessageIndexRef.current;
-                if (newMessages[idx] && newMessages[idx].role === 'assistant') {
-                  newMessages[idx] = {
-                    ...newMessages[idx],
-                    content: currentStreamContent.current,
-                    sources: currentSources.current,
-                    isStreaming: true,
-                  };
-                }
-                return newMessages;
-              });
+              pendingContentRef.current = currentStreamContent.current;
+              scheduleRender();
             } else if (chunk.type === 'error') {
               throw new Error(chunk.data);
             }
           }
 
-          // 流式完成，更新最终状态
-          setMessages((prev) => {
-            const newMessages = [...prev];
-            const idx = assistantMessageIndexRef.current;
-            if (newMessages[idx] && newMessages[idx].role === 'assistant') {
-              newMessages[idx] = {
-                ...newMessages[idx],
-                isStreaming: false,
-              };
-            }
-            return newMessages;
+          if (rafIdRef.current !== null) {
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = null;
+          }
+          updateStreamingMessage();
+
+          flushSync(() => {
+            setMessages((prev) => {
+              const newMessages = [...prev];
+              const idx = assistantMessageIndexRef.current;
+              if (newMessages[idx] && newMessages[idx].role === 'assistant') {
+                newMessages[idx] = {
+                  ...newMessages[idx],
+                  isStreaming: false,
+                };
+              }
+              return newMessages;
+            });
           });
         } else {
-          // 非流式请求
           const response = await sendChatMessage({
             message: content,
             session_id: sessionId || undefined,
@@ -134,12 +192,10 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
             return newMessages;
           });
 
-          // 更新会话 ID
           setSessionId(response.session_id);
         }
       } catch (error) {
         console.error('发送消息失败:', error);
-        // 显示错误消息
         setMessages((prev) => {
           const newMessages = [...prev];
           const idx = assistantMessageIndexRef.current;
@@ -158,7 +214,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         setIsLoading(false);
       }
     },
-    [messages, sessionId, isLoading, enableStream]
+    [messages, sessionId, isLoading, enableStream, scheduleRender, updateStreamingMessage]
   );
 
   const clearChat = useCallback(async () => {
@@ -187,16 +243,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     }
   }, []);
 
-  // 开始新对话
   const startNewChat = useCallback(() => {
     setMessages([]);
     setSessionId(null);
+    setStatus('');
+    setIsCached(false);
   }, []);
 
   return {
     messages,
     isLoading,
     sessionId,
+    status,
+    isCached,
     sendMessage,
     clearChat,
     loadSession,

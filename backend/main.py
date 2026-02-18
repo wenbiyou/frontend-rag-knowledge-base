@@ -48,7 +48,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -371,15 +371,22 @@ def chat_stream(request: ChatRequest):
     对话问答（流式，打字机效果）
 
     返回 SSE (Server-Sent Events) 格式的流数据
+    
+    优化：
+    - 响应缓存：热门问题秒回
+    - 异步写入：数据库操作不阻塞流式响应
+    - 禁用缓冲：确保实时传输
     """
     import time
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
     from admin.analytics import get_analytics_manager
     from admin.chat_history import get_history_manager
+    from core.cache import get_cache
 
     start_time = time.time()
     sources_found = []
 
-    # 使用 ChatSession 管理会话
     if request.session_id and request.session_id in sessions:
         session = sessions[request.session_id]
     else:
@@ -387,47 +394,78 @@ def chat_stream(request: ChatRequest):
         sessions[session.session_id] = session
 
     session_id = session.session_id
+    
+    cache = get_cache()
+    cached_response = cache.get(request.message, request.source_filter)
+    
+    if cached_response:
+        def generate_cached():
+            yield f"data: {json.dumps({'type': 'session_id', 'data': session_id}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'sources', 'data': cached_response['sources']}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'cached', 'data': True}, ensure_ascii=False)}\n\n"
+            
+            cached_answer = cached_response['answer']
+            chunk_size = 20
+            for i in range(0, len(cached_answer), chunk_size):
+                chunk = cached_answer[i:i + chunk_size]
+                yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
+            
+            yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+        
+        return StreamingResponse(
+            generate_cached(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
 
     def generate():
         nonlocal sources_found
+        executor = ThreadPoolExecutor(max_workers=2)
+        
         try:
-            # 首先返回 session_id
             yield f"data: {json.dumps({'type': 'session_id', 'data': session_id}, ensure_ascii=False)}\n\n"
 
             rag_engine = get_rag_engine()
             history_manager = get_history_manager()
+            
+            yield f"data: {json.dumps({'type': 'status', 'data': '正在检索知识库...'}, ensure_ascii=False)}\n\n"
 
-            # 保存用户消息到数据库
-            history_manager.save_message(
+            docs, metas = rag_engine._retrieve(request.message, request.source_filter)
+            
+            executor.submit(
+                history_manager.save_message,
                 session_id=session_id,
                 role="user",
                 content=request.message
             )
-
-            docs, metas = rag_engine._retrieve(request.message, request.source_filter)
 
             if not docs:
                 no_answer_msg = '根据现有知识库，我暂时没有找到与您问题相关的信息。'
                 yield f"data: {json.dumps({'type': 'content', 'data': no_answer_msg}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
-                # 保存助手消息
-                history_manager.save_message(
+                executor.submit(
+                    history_manager.save_message,
                     session_id=session_id,
                     role="assistant",
                     content=no_answer_msg,
                     sources=[]
                 )
 
-                analytics = get_analytics_manager()
                 response_time_ms = int((time.time() - start_time) * 1000)
-                analytics.log_question(
+                executor.submit(
+                    get_analytics_manager().log_question,
                     question=request.message,
                     session_id=session_id,
                     source_filter=request.source_filter,
                     has_answer=False,
                     response_time_ms=response_time_ms
                 )
+                executor.shutdown(wait=False)
                 return
 
             messages = rag_engine._build_prompt(request.message, docs, metas)
@@ -445,32 +483,39 @@ def chat_stream(request: ChatRequest):
 
             sources_found = sources
             yield f"data: {json.dumps({'type': 'sources', 'data': sources}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'status', 'data': '正在生成回答...'}, ensure_ascii=False)}\n\n"
 
-            # 收集完整响应用于保存
             full_content = ""
             for chunk in rag_engine.llm_client.chat_stream(messages):
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
 
-            # 保存助手消息到数据库
-            history_manager.save_message(
+            executor.submit(
+                history_manager.save_message,
                 session_id=session_id,
                 role="assistant",
                 content=full_content,
                 sources=sources_found
             )
+            
+            cache.set(request.message, request.source_filter, {
+                'answer': full_content,
+                'sources': sources_found
+            })
 
             yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
 
-            analytics = get_analytics_manager()
             response_time_ms = int((time.time() - start_time) * 1000)
-            analytics.log_question(
+            executor.submit(
+                get_analytics_manager().log_question,
                 question=request.message,
                 session_id=session_id,
                 source_filter=request.source_filter,
                 has_answer=len(sources_found) > 0,
                 response_time_ms=response_time_ms
             )
+            
+            executor.shutdown(wait=False)
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'data': str(e)}, ensure_ascii=False)}\n\n"
@@ -478,7 +523,11 @@ def chat_stream(request: ChatRequest):
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
     )
 
 @app.post("/api/upload")
@@ -801,6 +850,14 @@ def get_chat_stats(user: Optional[Dict] = Depends(get_current_user_optional)):
     stats = history_manager.get_stats(user_id=user_id)
 
     return stats
+
+
+@app.get("/api/cache-stats")
+def get_cache_stats():
+    """获取缓存统计信息"""
+    from core.cache import get_cache
+    cache = get_cache()
+    return cache.get_stats()
 
 
 # ==================== 搜索建议 API ====================

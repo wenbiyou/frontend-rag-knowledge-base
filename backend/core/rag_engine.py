@@ -14,7 +14,7 @@ RAG = Retrieval Augmented Generation（检索增强生成）
 from typing import List, Dict, Tuple
 from core.database import get_vector_store
 from ai.deepseek_client import get_llm_client, get_embedding_client
-from config import TOP_K, SIMILARITY_THRESHOLD
+from config import TOP_K, SIMILARITY_THRESHOLD, MAX_CONTEXT_LENGTH, ENABLE_CACHE, CACHE_TTL
 
 
 class RAGEngine:
@@ -115,16 +115,17 @@ class RAGEngine:
         Returns:
             符合 OpenAI/DeepSeek 格式的消息列表
         """
-        # 构建上下文字符串
         context_parts = []
         for i, (doc, meta) in enumerate(zip(context_docs, context_metas), 1):
             source = meta.get("source", "未知来源")
             title = meta.get("title", "")
-            context_parts.append(f"【文档 {i}】\n来源: {source}\n标题: {title}\n内容: {doc}\n")
+            truncated_doc = doc[:MAX_CONTEXT_LENGTH] if len(doc) > MAX_CONTEXT_LENGTH else doc
+            if len(doc) > MAX_CONTEXT_LENGTH:
+                truncated_doc += "..."
+            context_parts.append(f"【文档 {i}】\n来源: {source}\n标题: {title}\n内容: {truncated_doc}\n")
 
         context_str = "\n".join(context_parts)
 
-        # 构建用户消息
         user_message = f"""问题：{query}
 
 【参考文档】

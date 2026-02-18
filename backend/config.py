@@ -163,8 +163,13 @@ LLM_TEMPERATURE = 0.3  # 较低的温度使回答更确定、更精确
 LLM_MAX_TOKENS = 2000  # 最大回答长度
 
 # 检索配置
-TOP_K = 5  # 每次检索返回的最相关文档数量
+TOP_K = 3  # 每次检索返回的最相关文档数量（优化：从5减少到3）
 SIMILARITY_THRESHOLD = 0.1  # 相似度阈值，低于此值的结果会被过滤（本地模型建议设置较低，如0.1-0.2）
+
+# 上下文优化配置
+MAX_CONTEXT_LENGTH = 500  # 每个文档上下文最大字符数（优化：限制上下文长度）
+ENABLE_CACHE = os.getenv("ENABLE_CACHE", "true").lower() == "true"  # 是否启用响应缓存
+CACHE_TTL = int(os.getenv("CACHE_TTL", 3600))  # 缓存过期时间（秒），默认1小时
 
 # 服务配置
 HOST = os.getenv("HOST", "0.0.0.0")

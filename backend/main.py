@@ -15,7 +15,7 @@ FastAPI 主应用
 - POST /api/auth/login   : 用户登录
 - GET  /api/auth/me      : 获取当前用户
 """
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Request, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -2662,7 +2662,7 @@ def share_prompt(
 def get_prompts(
     category: Optional[str] = None,
     search: Optional[str] = None,
-    sort_by: str = Query("created_at", regex="^(created_at|likes|views)$"),
+    sort_by: str = Query("created_at", pattern="^(created_at|likes|views)$"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):

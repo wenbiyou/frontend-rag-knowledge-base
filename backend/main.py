@@ -2825,6 +2825,111 @@ def get_community_categories():
     return manager.get_categories()
 
 
+# ==================== 代码沙箱 API ====================
+
+class CodeExecuteRequest(BaseModel):
+    """代码执行请求"""
+    code: str
+    language: str = "python"
+    session_id: Optional[str] = None
+    input_data: Optional[str] = None
+    timeout: Optional[float] = None
+    limits: Optional[Dict] = None
+
+
+class CodeValidateRequest(BaseModel):
+    """代码验证请求"""
+    code: str
+    language: str = "python"
+
+
+@app.post("/api/sandbox/execute")
+def execute_code(
+    request: CodeExecuteRequest,
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
+    """
+    执行代码
+
+    在安全沙箱环境中执行代码，支持 Python/JavaScript/TypeScript
+    """
+    from admin.code_sandbox import get_sandbox_manager
+
+    manager = get_sandbox_manager()
+    user_id = user["id"] if user else None
+
+    result = manager.execute_code(
+        code=request.code,
+        language=request.language,
+        session_id=request.session_id or "",
+        user_id=user_id,
+        input_data=request.input_data,
+        timeout=request.timeout,
+        limits=request.limits
+    )
+
+    return result
+
+
+@app.post("/api/sandbox/validate")
+def validate_code(request: CodeValidateRequest):
+    """验证代码安全性"""
+    from admin.code_sandbox import get_sandbox_manager
+
+    manager = get_sandbox_manager()
+    return manager.validate_code(request.code, request.language)
+
+
+@app.get("/api/sandbox/languages")
+def get_supported_languages():
+    """获取支持的语言列表"""
+    from admin.code_sandbox import get_sandbox_manager
+
+    manager = get_sandbox_manager()
+    return {"languages": manager.get_supported_languages()}
+
+
+@app.get("/api/sandbox/executions/{execution_id}")
+def get_execution_detail(execution_id: int):
+    """获取执行记录详情"""
+    from admin.code_sandbox import get_sandbox_manager
+
+    manager = get_sandbox_manager()
+    result = manager.get_execution(execution_id)
+
+    if not result:
+        raise HTTPException(status_code=404, detail="执行记录不存在")
+
+    return result
+
+
+@app.get("/api/sandbox/sessions/{session_id}/executions")
+def get_session_executions(
+    session_id: str,
+    limit: int = Query(50, ge=1, le=100)
+):
+    """获取会话的所有执行记录"""
+    from admin.code_sandbox import get_sandbox_manager
+
+    manager = get_sandbox_manager()
+    executions = manager.get_session_executions(session_id, limit)
+
+    return {"executions": executions, "total": len(executions)}
+
+
+@app.get("/api/sandbox/stats")
+def get_sandbox_stats(
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
+    """获取执行统计"""
+    from admin.code_sandbox import get_sandbox_manager
+
+    manager = get_sandbox_manager()
+    user_id = user["id"] if user else None
+
+    return manager.get_stats(user_id)
+
+
 # ==================== 启动入口 ====================
 
 def main():

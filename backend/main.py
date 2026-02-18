@@ -2930,6 +2930,82 @@ def get_sandbox_stats(
     return manager.get_stats(user_id)
 
 
+# ==================== 工具调用 API ====================
+
+class ToolExecuteRequest(BaseModel):
+    """工具执行请求"""
+    tool_name: str
+    parameters: Dict[str, Any] = {}
+
+
+@app.get("/api/tools")
+def list_tools():
+    """列出所有可用工具"""
+    from agent.tools import get_tool_registry
+
+    registry = get_tool_registry()
+    return {"tools": registry.list_tools()}
+
+
+@app.get("/api/tools/categories")
+def list_tools_by_category():
+    """按类别列出工具"""
+    from agent.tools import get_tool_registry
+
+    registry = get_tool_registry()
+    return registry.list_tools_by_category()
+
+
+@app.get("/api/tools/{tool_name}")
+def get_tool_info(tool_name: str):
+    """获取工具详情"""
+    from agent.tools import get_tool_registry
+
+    registry = get_tool_registry()
+    tool = registry.get(tool_name)
+
+    if not tool:
+        raise HTTPException(status_code=404, detail=f"工具 '{tool_name}' 不存在")
+
+    return tool.get_schema()
+
+
+@app.post("/api/tools/execute")
+def execute_tool(
+    request: ToolExecuteRequest,
+    user: Optional[Dict] = Depends(get_current_user_optional)
+):
+    """
+    执行工具
+
+    支持的工具：calculator, statistics, knowledge_search, web_search 等
+    """
+    from agent.tools import get_tool_registry
+
+    registry = get_tool_registry()
+
+    if not registry.has_tool(request.tool_name):
+        raise HTTPException(status_code=404, detail=f"工具 '{request.tool_name}' 不存在")
+
+    result = registry.execute(request.tool_name, **request.parameters)
+
+    return {
+        "success": result.success,
+        "output": result.output,
+        "error": result.error,
+        "metadata": result.metadata
+    }
+
+
+@app.get("/api/tools/schemas/llm")
+def get_tool_schemas_for_llm():
+    """获取用于 LLM Function Calling 的工具 Schema"""
+    from agent.tools import get_tool_registry
+
+    registry = get_tool_registry()
+    return {"tools": registry.get_tool_schemas_for_llm()}
+
+
 # ==================== 启动入口 ====================
 
 def main():

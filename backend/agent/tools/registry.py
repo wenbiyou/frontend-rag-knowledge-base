@@ -3,48 +3,14 @@
 管理和调度各种工具
 """
 
-from typing import Dict, List, Any, Optional, Callable
-from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
+from typing import Dict, List, Any, Optional
 import json
 
-
-@dataclass
-class ToolResult:
-    """工具执行结果"""
-    success: bool
-    output: Any
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "success": self.success,
-            "output": self.output,
-            "error": self.error,
-            "metadata": self.metadata,
-        }
-
-
-class BaseTool(ABC):
-    """工具基类"""
-
-    name: str = ""
-    description: str = ""
-    parameters: Dict[str, Any] = field(default_factory=dict)
-
-    @abstractmethod
-    def execute(self, **kwargs) -> ToolResult:
-        """执行工具"""
-        pass
-
-    def get_schema(self) -> Dict[str, Any]:
-        """获取工具 Schema"""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": self.parameters,
-        }
+from agent.tools.base import BaseTool, ToolResult
+from agent.tools.search import KnowledgeSearchTool, WebSearchTool, CodeSearchTool
+from agent.tools.calculator import CalculatorTool, StatisticsTool, DataAnalysisTool
+from agent.tools.api_caller import APICallTool, JSONParserTool, URLBuilderTool
+from agent.tools.file_ops import FileReadTool, FileWriteTool, DirectoryListTool, JSONFileTool
 
 
 class ToolRegistry:
@@ -52,6 +18,23 @@ class ToolRegistry:
 
     def __init__(self):
         self._tools: Dict[str, BaseTool] = {}
+        self._register_default_tools()
+
+    def _register_default_tools(self) -> None:
+        """注册默认工具"""
+        self.register(KnowledgeSearchTool())
+        self.register(WebSearchTool())
+        self.register(CodeSearchTool())
+        self.register(CalculatorTool())
+        self.register(StatisticsTool())
+        self.register(DataAnalysisTool())
+        self.register(APICallTool())
+        self.register(JSONParserTool())
+        self.register(URLBuilderTool())
+        self.register(FileReadTool())
+        self.register(FileWriteTool())
+        self.register(DirectoryListTool())
+        self.register(JSONFileTool())
 
     def register(self, tool: BaseTool) -> None:
         """注册工具"""
@@ -72,6 +55,33 @@ class ToolRegistry:
         """列出所有工具"""
         return [tool.get_schema() for tool in self._tools.values()]
 
+    def list_tools_by_category(self) -> Dict[str, List[Dict]]:
+        """按类别列出工具"""
+        categories = {
+            "search": [],
+            "calculation": [],
+            "api": [],
+            "file": [],
+        }
+
+        search_tools = {"knowledge_search", "web_search", "code_search"}
+        calc_tools = {"calculator", "statistics", "data_analysis"}
+        api_tools = {"api_call", "json_parser", "url_builder"}
+        file_tools = {"file_read", "file_write", "directory_list", "json_file"}
+
+        for name, tool in self._tools.items():
+            schema = tool.get_schema()
+            if name in search_tools:
+                categories["search"].append(schema)
+            elif name in calc_tools:
+                categories["calculation"].append(schema)
+            elif name in api_tools:
+                categories["api"].append(schema)
+            elif name in file_tools:
+                categories["file"].append(schema)
+
+        return categories
+
     def execute(self, name: str, **kwargs) -> ToolResult:
         """执行工具"""
         tool = self.get(name)
@@ -86,6 +96,20 @@ class ToolRegistry:
     def has_tool(self, name: str) -> bool:
         """检查工具是否存在"""
         return name in self._tools
+
+    def get_tool_schemas_for_llm(self) -> List[Dict]:
+        """获取用于 LLM 的工具 Schema（OpenAI Function Calling 格式）"""
+        schemas = []
+        for tool in self._tools.values():
+            schemas.append({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters
+                }
+            })
+        return schemas
 
 
 _tool_registry: Optional[ToolRegistry] = None
